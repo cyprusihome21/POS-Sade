@@ -443,7 +443,7 @@ async function seedDefaultDeveloper(){
 }
 
 async function tryLogin(username, password){
-  const hash = await sha256(password);
+  const hash = await sha256(password); 
   const user = state.db.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.active !== false);
   if(!user || user.passwordHash !== hash) return null;
   return user;
