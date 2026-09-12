@@ -221,6 +221,41 @@
 
   code{background:var(--espresso); padding:1px 6px; border-radius:4px; font-size:12px;}
   .setup-steps li{margin-bottom:10px; font-size:13px; color:var(--paper-dim); line-height:1.5;}
+
+  /* ---------- coupon row ---------- */
+  .coupon-row{display:flex; gap:8px; margin-bottom:10px;}
+  .coupon-row input{flex:1;}
+  .applied-coupon{
+    display:flex; align-items:center; justify-content:space-between;
+    background:rgba(122,154,108,0.1); border:1px solid rgba(122,154,108,.35);
+    color:#cfe3c6; padding:7px 10px; border-radius:7px; font-size:12.5px; margin-bottom:10px;
+  }
+  .applied-coupon a{color:#e5978d; cursor:pointer; font-weight:600;}
+  .discount-row{display:flex; justify-content:space-between; font-size:13px; color:var(--ok); margin-bottom:6px;}
+
+  /* ---------- draggable menu buttons (developer reorder) ---------- */
+  .product-btn.draggable{cursor:grab;}
+  .product-btn.dragging{opacity:0.35;}
+  .product-btn.drag-over{border-color:var(--copper-light); box-shadow:0 0 0 2px var(--copper-light) inset;}
+  .drag-hint{font-size:11.5px; color:var(--crema-dim); margin-bottom:10px;}
+
+  /* ---------- theme editor ---------- */
+  .theme-grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(190px,1fr)); gap:14px; margin-bottom:16px;}
+  .theme-swatch-field{display:flex; align-items:center; gap:10px; background:var(--espresso); border:1px solid var(--line); border-radius:8px; padding:9px 12px;}
+  .theme-swatch-field input[type=color]{width:34px; height:34px; padding:0; border:none; border-radius:6px; background:none; cursor:pointer;}
+  .theme-swatch-field .tlabel{font-size:12.5px; flex:1;}
+  .theme-swatch-field .tval{font-size:11px; color:var(--crema-dim);}
+
+  /* ---------- print ---------- */
+  #printArea{display:none;}
+  @media print{
+    body *{visibility:hidden;}
+    #printArea, #printArea *{visibility:visible;}
+    #printArea{
+      display:block; position:absolute; top:0; left:0; width:100%;
+      background:#fff; color:#000; padding:0;
+    }
+  }
 </style>
 </head>
 <body>
@@ -236,7 +271,7 @@
    Fill these in from your own Google Cloud project (see in-app Setup screen
    for exact steps). Nothing will work until CLIENT_ID is set. */
 const CONFIG = {
-  CLIENT_ID: "123572472682-v17hrcl71fg8t477rb4s0rk6lf6h4ooj.apps.googleusercontent.com",
+  CLIENT_ID: "YOUR_GOOGLE_OAUTH_CLIENT_ID.apps.googleusercontent.com",
   DB_FILENAME: "roastline_pos_db.json",
   SCOPES: "https://www.googleapis.com/auth/drive",
   SYNC_INTERVAL_MS: 20000
@@ -251,12 +286,18 @@ const state = {
   currentUser: null,   // {id, username, role, name}
   cart: [],            // [{productId, name, price, qty}]
   payMethod: "cash",
+  appliedCoupon: null, // {code, percent}
   view: null,          // current screen
   adminTab: "live",
   devTab: "products",
   syncTimer: null,
   saving: false,
-  lastError: null
+  lastError: null,
+  dragProductId: null  // developer drag-reorder
+};
+
+const DEFAULT_THEME = {
+  bg:"#1c1410", bg2:"#2a1f18", accent:"#b5652f", accentLight:"#d98a52", text:"#f6ede0"
 };
 
 const $ = sel => document.querySelector(sel);
@@ -282,19 +323,43 @@ function toast(msg, kind){
 /* ---------------- DEFAULT DB ---------------- */
 function defaultDb(){
   return {
-    meta: { appActive: true, businessName: "Roastline Coffee", updatedAt: nowIso() },
+    meta: { appActive: true, businessName: "Roastline Coffee", updatedAt: nowIso(), theme: {...DEFAULT_THEME} },
     users: [],          // seeded async below with hashed password
     products: [
-      { id: uid(), name:"Espresso", price:3.00, category:"Coffee", emoji:"☕", color:"#b5652f", active:true, updatedAt: nowIso() },
-      { id: uid(), name:"Latte", price:4.50, category:"Coffee", emoji:"🥛", color:"#c7a877", active:true, updatedAt: nowIso() },
-      { id: uid(), name:"Cappuccino", price:4.25, category:"Coffee", emoji:"☕", color:"#8a5a34", active:true, updatedAt: nowIso() },
-      { id: uid(), name:"Cold Brew", price:4.75, category:"Coffee", emoji:"🧊", color:"#3d3128", active:true, updatedAt: nowIso() },
-      { id: uid(), name:"Croissant", price:3.50, category:"Bakery", emoji:"🥐", color:"#d9a441", active:true, updatedAt: nowIso() },
-      { id: uid(), name:"Muffin", price:3.25, category:"Bakery", emoji:"🧁", color:"#a8763e", active:true, updatedAt: nowIso() },
+      { id: uid(), name:"Espresso", price:3.00, category:"Coffee", emoji:"☕", color:"#b5652f", active:true, order:0, updatedAt: nowIso() },
+      { id: uid(), name:"Latte", price:4.50, category:"Coffee", emoji:"🥛", color:"#c7a877", active:true, order:1, updatedAt: nowIso() },
+      { id: uid(), name:"Cappuccino", price:4.25, category:"Coffee", emoji:"☕", color:"#8a5a34", active:true, order:2, updatedAt: nowIso() },
+      { id: uid(), name:"Cold Brew", price:4.75, category:"Coffee", emoji:"🧊", color:"#3d3128", active:true, order:3, updatedAt: nowIso() },
+      { id: uid(), name:"Croissant", price:3.50, category:"Bakery", emoji:"🥐", color:"#d9a441", active:true, order:4, updatedAt: nowIso() },
+      { id: uid(), name:"Muffin", price:3.25, category:"Bakery", emoji:"🧁", color:"#a8763e", active:true, order:5, updatedAt: nowIso() },
     ],
+    coupons: [],
     sales: [],
     dayCloses: []
   };
+}
+
+/* apply theme colors from db.meta.theme onto the page */
+function applyTheme(){
+  const t = (state.db && state.db.meta && state.db.meta.theme) ? state.db.meta.theme : DEFAULT_THEME;
+  const root = document.documentElement.style;
+  root.setProperty("--espresso", t.bg || DEFAULT_THEME.bg);
+  root.setProperty("--espresso-2", t.bg2 || DEFAULT_THEME.bg2);
+  root.setProperty("--copper", t.accent || DEFAULT_THEME.accent);
+  root.setProperty("--copper-light", t.accentLight || DEFAULT_THEME.accentLight);
+  root.setProperty("--paper", t.text || DEFAULT_THEME.text);
+}
+
+/* print any HTML fragment using a hidden print-only container */
+function printHTML(innerHtml){
+  let area = document.getElementById("printArea");
+  if(!area){
+    area = document.createElement("div");
+    area.id = "printArea";
+    document.body.appendChild(area);
+  }
+  area.innerHTML = innerHtml;
+  window.print();
 }
 
 /* ================= GOOGLE DRIVE LAYER ================= */
@@ -370,12 +435,12 @@ async function driveWriteFile(fileId, dbObj){
 function mergeDb(local, remote){
   if(!remote) return local;
   if(!local) return remote;
-  const merged = { meta: null, users: [], products: [], sales: [], dayCloses: [] };
+  const merged = { meta: null, users: [], products: [], coupons: [], sales: [], dayCloses: [] };
   merged.meta = (new Date(remote.meta.updatedAt) > new Date(local.meta.updatedAt)) ? remote.meta : local.meta;
 
   function mergeById(a, b){
     const map = {};
-    [...a, ...b].forEach(rec=>{
+    [...(a||[]), ...(b||[])].forEach(rec=>{
       const existing = map[rec.id];
       if(!existing || new Date(rec.updatedAt || rec.createdAt || 0) >= new Date(existing.updatedAt || existing.createdAt || 0)){
         map[rec.id] = rec;
@@ -385,6 +450,7 @@ function mergeDb(local, remote){
   }
   merged.users = mergeById(local.users, remote.users);
   merged.products = mergeById(local.products, remote.products);
+  merged.coupons = mergeById(local.coupons, remote.coupons);
 
   function unionById(a,b){
     const map = {};
@@ -400,6 +466,7 @@ async function pullFromDrive(silent){
   try{
     const remote = await driveReadFile(state.dbFileId);
     state.db = mergeDb(state.db, remote);
+    applyTheme();
     if(!silent) render();
     else renderIfLive();
   }catch(e){ console.warn("pull failed", e); }
@@ -443,7 +510,7 @@ async function seedDefaultDeveloper(){
 }
 
 async function tryLogin(username, password){
-  const hash = await sha256(password); 
+  const hash = await sha256(password);
   const user = state.db.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.active !== false);
   if(!user || user.passwordHash !== hash) return null;
   return user;
@@ -481,6 +548,9 @@ async function handleConnect(){
         await pushToDrive();
       }
     }
+    if(!state.db.coupons) state.db.coupons = [];
+    if(!state.db.meta.theme) state.db.meta.theme = {...DEFAULT_THEME};
+    applyTheme();
     startSyncLoop();
     state.view = "login";
     render();
@@ -637,7 +707,7 @@ function renderCashierView(el){
     el.innerHTML = `<div class="empty-state"><div class="big">✅</div><h3>Day already closed</h3><p>You closed out at ${new Date(closedToday.closedAt).toLocaleTimeString()} — total ${money(closedToday.totalSales)} across ${closedToday.transactionCount} sales.</p></div>`;
     return;
   }
-  const products = state.db.products.filter(p=>p.active!==false);
+  const products = sortedProducts().filter(p=>p.active!==false);
   const cats = [...new Set(products.map(p=>p.category||"Other"))];
 
   const wrap = document.createElement("div");
@@ -667,11 +737,22 @@ function renderCashierView(el){
 
   const cartCol = document.createElement("div");
   cartCol.className = "cart-panel";
-  const total = state.cart.reduce((s,i)=>s+i.price*i.qty,0);
+  const subtotal = state.cart.reduce((s,i)=>s+i.price*i.qty,0);
+  const discountAmt = state.appliedCoupon ? subtotal * (state.appliedCoupon.percent/100) : 0;
+  const total = Math.max(0, subtotal - discountAmt);
   cartCol.innerHTML = `
     <div class="cart-head"><h3>Current order</h3></div>
     <div class="cart-items" id="cartItems"></div>
     <div class="cart-foot">
+      ${state.appliedCoupon ? `
+        <div class="applied-coupon"><span>🏷️ ${state.appliedCoupon.code} — ${state.appliedCoupon.percent}% off</span><a id="removeCoupon">Remove</a></div>
+      ` : `
+        <div class="coupon-row">
+          <input id="couponInput" placeholder="Coupon code" />
+          <button class="btn btn-outline" id="applyCouponBtn">Apply</button>
+        </div>
+      `}
+      ${discountAmt>0 ? `<div class="discount-row"><span>Discount</span><span>−${money(discountAmt)}</span></div>` : ""}
       <div class="total-row"><span style="color:var(--crema-dim); font-size:13px;">Total</span><span class="amt">${money(total)}</span></div>
       <div class="pay-toggle">
         <button data-pay="cash" class="${state.payMethod==='cash'?'active':''}">Cash</button>
@@ -717,6 +798,20 @@ function renderCashierView(el){
   });
   $("#checkoutBtn").onclick = completeSale;
   $("#closeDayBtn").onclick = openCloseDayModal;
+  if($("#applyCouponBtn")){
+    $("#applyCouponBtn").onclick = ()=>{
+      const code = $("#couponInput").value.trim();
+      if(!code) return;
+      const match = (state.db.coupons||[]).find(c => c.code.toLowerCase()===code.toLowerCase() && c.active!==false);
+      if(!match){ toast("Coupon not found or inactive", "err"); return; }
+      state.appliedCoupon = { code: match.code, percent: match.percent };
+      render();
+    };
+    $("#couponInput").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#applyCouponBtn").click(); });
+  }
+  if($("#removeCoupon")){
+    $("#removeCoupon").onclick = ()=>{ state.appliedCoupon = null; render(); };
+  }
 }
 
 function addToCart(product){
@@ -728,12 +823,19 @@ function addToCart(product){
 
 async function completeSale(){
   if(state.cart.length===0) return;
-  const total = state.cart.reduce((s,i)=>s+i.price*i.qty,0);
+  const subtotal = state.cart.reduce((s,i)=>s+i.price*i.qty,0);
+  const discountPercent = state.appliedCoupon ? state.appliedCoupon.percent : 0;
+  const discountAmt = subtotal * (discountPercent/100);
+  const total = Math.max(0, subtotal - discountAmt);
   const sale = {
     id: uid(),
     cashierId: state.currentUser.id,
     cashierName: state.currentUser.name || state.currentUser.username,
     items: state.cart.map(i=>({productId:i.productId, name:i.name, price:i.price, qty:i.qty})),
+    subtotal,
+    couponCode: state.appliedCoupon ? state.appliedCoupon.code : null,
+    discountPercent,
+    discountAmt,
     total,
     payment: state.payMethod,
     timestamp: nowIso(),
@@ -741,9 +843,42 @@ async function completeSale(){
   };
   state.db.sales.push(sale);
   state.cart = [];
+  state.appliedCoupon = null;
   await pushToDrive();
-  toast("Sale completed — "+money(sale.total), "ok");
+  showReceiptModal(sale);
   render();
+}
+
+function showReceiptModal(sale){
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>Sale complete</h3>
+      <div class="receipt" id="receiptContent">${receiptInnerHtml(sale)}</div>
+      <div class="modal-actions">
+        <button class="btn btn-outline btn-block" id="closeReceipt">Close</button>
+        <button class="btn btn-primary btn-block" id="printReceiptBtn">🖨️ Print receipt</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  $("#closeReceipt").onclick = ()=>bg.remove();
+  $("#printReceiptBtn").onclick = ()=> printHTML(`<div class="receipt">${receiptInnerHtml(sale)}</div>`);
+}
+
+function receiptInnerHtml(sale){
+  return `
+    <div class="rline"><span>${state.db.meta.businessName||"Roastline Coffee"}</span><span>${new Date(sale.timestamp).toLocaleString()}</span></div>
+    <div class="rline"><span>Cashier</span><span>${sale.cashierName}</span></div>
+    <hr/>
+    ${sale.items.map(i=>`<div class="rline"><span>${i.qty}× ${i.name}</span><span>${money(i.price*i.qty)}</span></div>`).join("")}
+    <hr/>
+    <div class="rline"><span>Subtotal</span><span>${money(sale.subtotal!=null?sale.subtotal:sale.total)}</span></div>
+    ${sale.discountAmt ? `<div class="rline"><span>Coupon ${sale.couponCode} (${sale.discountPercent}%)</span><span>−${money(sale.discountAmt)}</span></div>` : ""}
+    <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(sale.total)}</span></div>
+    <div class="rline"><span>Payment</span><span style="text-transform:capitalize;">${sale.payment}</span></div>
+    <hr/>
+    <div style="text-align:center; font-size:11px; opacity:.7;">Thank you!</div>`;
 }
 
 function openCloseDayModal(){
@@ -755,30 +890,32 @@ function openCloseDayModal(){
   todaySales.forEach(s=>s.items.forEach(it=>{
     byProduct[it.name] = (byProduct[it.name]||0) + it.qty;
   }));
+  const reportHtml = `
+    <div class="rline"><span>Cashier</span><span>${state.currentUser.name||state.currentUser.username}</span></div>
+    <div class="rline"><span>Date</span><span>${todayStr()}</span></div>
+    <hr/>
+    <div class="rline"><span>Transactions</span><span>${todaySales.length}</span></div>
+    <div class="rline"><span>Cash</span><span>${money(cash)}</span></div>
+    <div class="rline"><span>Card</span><span>${money(card)}</span></div>
+    <hr/>
+    ${Object.entries(byProduct).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
+    <hr/>
+    <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(total)}</span></div>`;
   const bg = document.createElement("div");
   bg.className = "modal-bg";
   bg.innerHTML = `
     <div class="modal">
       <h3>Close out the day</h3>
-      <div class="receipt">
-        <div class="rline"><span>Cashier</span><span>${state.currentUser.name||state.currentUser.username}</span></div>
-        <div class="rline"><span>Date</span><span>${todayStr()}</span></div>
-        <hr/>
-        <div class="rline"><span>Transactions</span><span>${todaySales.length}</span></div>
-        <div class="rline"><span>Cash</span><span>${money(cash)}</span></div>
-        <div class="rline"><span>Card</span><span>${money(card)}</span></div>
-        <hr/>
-        ${Object.entries(byProduct).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
-        <hr/>
-        <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(total)}</span></div>
-      </div>
+      <div class="receipt">${reportHtml}</div>
       <p style="font-size:12px; color:var(--crema-dim); margin-top:12px;">Once closed, no more sales can be entered under your name today. This report syncs to the developer and admin.</p>
       <div class="modal-actions">
+        <button class="btn btn-outline" id="printCloseBtn">🖨️ Print</button>
         <button class="btn btn-outline btn-block" id="cancelClose">Cancel</button>
         <button class="btn btn-primary btn-block" id="confirmClose">Confirm close</button>
       </div>
     </div>`;
   document.body.appendChild(bg);
+  $("#printCloseBtn").onclick = ()=> printHTML(`<div class="receipt">${reportHtml}</div>`);
   $("#cancelClose").onclick = ()=>bg.remove();
   $("#confirmClose").onclick = async ()=>{
     const report = {
@@ -803,7 +940,7 @@ function openCloseDayModal(){
 function renderAdminView(el){
   const tabs = document.createElement("div");
   tabs.className = "tabs";
-  [["live","Live sales"],["reports","Day reports"],["menu","Menu"],["team","Team"]].forEach(([key,label])=>{
+  [["live","Live sales"],["reports","Day reports"],["menu","Menu"],["coupons","Coupons"],["team","Team"]].forEach(([key,label])=>{
     const t = document.createElement("div");
     t.className = "tab" + (state.adminTab===key ? " active":"");
     t.textContent = label;
@@ -818,6 +955,7 @@ function renderAdminView(el){
   if(state.adminTab==="live") return renderLiveSales(body, false);
   if(state.adminTab==="reports") return renderReportsList(body, false);
   if(state.adminTab==="menu") return renderMenuList(body, false);
+  if(state.adminTab==="coupons") return renderCouponsList(body, false);
   if(state.adminTab==="team") return renderTeamList(body, false);
 }
 
@@ -861,7 +999,7 @@ function renderReportsList(el, editable){
     <div class="card">
       <h3 style="margin-bottom:12px; font-size:15px;">Day-close reports</h3>
       <table>
-        <thead><tr><th>Date</th><th>Cashier</th><th>Transactions</th><th>Cash</th><th>Card</th><th style="text-align:right;">Total</th></tr></thead>
+        <thead><tr><th>Date</th><th>Cashier</th><th>Transactions</th><th>Cash</th><th>Card</th><th style="text-align:right;">Total</th><th></th></tr></thead>
         <tbody>
           ${closes.map(c=>`
             <tr>
@@ -871,23 +1009,77 @@ function renderReportsList(el, editable){
               <td>${money(c.breakdown.cash)}</td>
               <td>${money(c.breakdown.card)}</td>
               <td style="text-align:right;">${money(c.totalSales)}</td>
-            </tr>`).join("") || `<tr><td colspan="6" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
+              <td><a class="link" data-print="${c.id}">Print</a></td>
+            </tr>`).join("") || `<tr><td colspan="7" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
         </tbody>
       </table>
     </div>`;
+  el.querySelectorAll("[data-print]").forEach(a=>{
+    a.onclick = ()=>{
+      const c = closes.find(x=>x.id===a.dataset.print);
+      const html = `
+        <div class="rline"><span>Cashier</span><span>${c.cashierName}</span></div>
+        <div class="rline"><span>Date</span><span>${c.date}</span></div>
+        <hr/>
+        <div class="rline"><span>Transactions</span><span>${c.transactionCount}</span></div>
+        <div class="rline"><span>Cash</span><span>${money(c.breakdown.cash)}</span></div>
+        <div class="rline"><span>Card</span><span>${money(c.breakdown.card)}</span></div>
+        <hr/>
+        ${Object.entries(c.breakdown.byProduct||{}).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
+        <hr/>
+        <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(c.totalSales)}</span></div>`;
+      printHTML(`<div class="receipt">${html}</div>`);
+    };
+  });
+}
+
+function sortedProducts(){
+  return state.db.products.slice().sort((a,b)=> (a.order??0) - (b.order??0));
 }
 
 function renderMenuList(el, editable){
-  el.innerHTML = `<div class="card"><h3 style="margin-bottom:12px; font-size:15px;">Menu (${editable?"editable":"view only"})</h3>
+  el.innerHTML = `<div class="card"><h3 style="margin-bottom:6px; font-size:15px;">Menu (${editable?"editable":"view only"})</h3>
+    ${editable ? `<div class="drag-hint">Drag a button to reorder it — the new order shows up for cashiers right away.</div>` : ""}
     <div id="menuGrid" class="product-grid"></div></div>`;
   const grid = $("#menuGrid");
-  state.db.products.forEach(p=>{
+  const products = sortedProducts();
+  products.forEach(p=>{
     const c = document.createElement("div");
-    c.className = "product-btn";
-    c.style.cursor = editable ? "pointer" : "default";
+    c.className = "product-btn" + (editable ? " draggable" : "");
+    c.style.cursor = editable ? "grab" : "default";
     c.style.opacity = p.active===false ? "0.4" : "1";
+    c.dataset.pid = p.id;
     c.innerHTML = `<div class="emoji">${p.emoji||"🧾"}</div><div class="pname">${p.name}</div><div class="pprice">${money(p.price)}</div>`;
-    if(editable) c.onclick = ()=>openProductModal(p);
+    if(editable){
+      c.onclick = ()=>openProductModal(p);
+      c.draggable = true;
+      c.addEventListener("dragstart", e=>{
+        state.dragProductId = p.id;
+        c.classList.add("dragging");
+        e.dataTransfer.effectAllowed = "move";
+      });
+      c.addEventListener("dragend", ()=> c.classList.remove("dragging"));
+      c.addEventListener("dragover", e=>{ e.preventDefault(); c.classList.add("drag-over"); });
+      c.addEventListener("dragleave", ()=> c.classList.remove("drag-over"));
+      c.addEventListener("drop", async e=>{
+        e.preventDefault();
+        c.classList.remove("drag-over");
+        const draggedId = state.dragProductId;
+        if(!draggedId || draggedId===p.id) return;
+        const ordered = sortedProducts();
+        const fromIdx = ordered.findIndex(x=>x.id===draggedId);
+        const toIdx = ordered.findIndex(x=>x.id===p.id);
+        if(fromIdx<0 || toIdx<0) return;
+        const [moved] = ordered.splice(fromIdx,1);
+        ordered.splice(toIdx,0,moved);
+        ordered.forEach((prod,i)=>{
+          prod.order = i;
+          prod.updatedAt = nowIso();
+        });
+        await pushToDrive();
+        render();
+      });
+    }
     grid.appendChild(c);
   });
   if(editable){
@@ -943,7 +1135,7 @@ function renderDeveloperView(el){
 
   const tabs = document.createElement("div");
   tabs.className = "tabs";
-  [["products","Menu buttons"],["team","Cashiers & admins"],["live","Live sales"],["reports","Day reports"]].forEach(([key,label])=>{
+  [["products","Menu buttons"],["coupons","Coupons"],["theme","Theme"],["team","Cashiers & admins"],["live","Live sales"],["reports","Day reports"]].forEach(([key,label])=>{
     const t = document.createElement("div");
     t.className = "tab" + (state.devTab===key ? " active":"");
     t.textContent = label;
@@ -962,9 +1154,140 @@ function renderDeveloperView(el){
   };
 
   if(state.devTab==="products") return renderMenuList(body, true);
+  if(state.devTab==="coupons") return renderCouponsList(body, true);
+  if(state.devTab==="theme") return renderThemeEditor(body);
   if(state.devTab==="team") return renderTeamList(body, true);
   if(state.devTab==="live") return renderLiveSales(body, true);
   if(state.devTab==="reports") return renderReportsList(body, true);
+}
+
+/* ================= COUPONS ================= */
+function renderCouponsList(el, editable){
+  const coupons = (state.db.coupons||[]).slice().sort((a,b)=> new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  el.innerHTML = `<div class="card"><h3 style="margin-bottom:12px; font-size:15px;">Coupons (${editable?"editable":"view only"})</h3>
+    <table><thead><tr><th>Code</th><th>Discount</th><th>Status</th>${editable?"<th></th>":""}</tr></thead>
+    <tbody id="couponBody"></tbody></table>
+    ${editable?'<button class="btn btn-primary" id="addCouponBtn" style="margin-top:14px;">Add coupon</button>':""}
+    </div>`;
+  const body = $("#couponBody");
+  if(coupons.length===0){
+    body.innerHTML = `<tr><td colspan="${editable?4:3}" style="text-align:center; color:var(--crema-dim); padding:24px;">No coupons yet.</td></tr>`;
+  }
+  coupons.forEach(c=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td class="mono">${c.code}</td><td>${c.percent}% off</td>
+      <td style="color:${c.active===false?'var(--err)':'var(--ok)'};">${c.active===false?"Disabled":"Active"}</td>
+      ${editable?`<td><a class="link" data-cid="${c.id}">Edit</a></td>`:""}`;
+    body.appendChild(tr);
+  });
+  if(editable){
+    $("#addCouponBtn").onclick = ()=>openCouponModal(null);
+    body.querySelectorAll("a[data-cid]").forEach(a=>{
+      a.onclick = ()=>openCouponModal(coupons.find(c=>c.id===a.dataset.cid));
+    });
+  }
+}
+
+function openCouponModal(coupon){
+  const isNew = !coupon;
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${isNew ? "New coupon" : "Edit coupon"}</h3>
+      <div class="field"><label>Code (what the cashier types)</label><input id="cfCode" value="${coupon?coupon.code:""}" style="text-transform:uppercase;" /></div>
+      <div class="field"><label>Discount percent (%)</label><input id="cfPercent" type="number" min="1" max="100" value="${coupon?coupon.percent:10}" /></div>
+      ${!isNew ? `<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="cfActive" style="width:auto;" ${coupon.active!==false?"checked":""}/> Coupon active</label></div>` : ""}
+      <div class="modal-actions">
+        ${!isNew ? '<button class="btn btn-danger" id="delCoupon">Delete</button>' : '<span></span>'}
+        <button class="btn btn-outline" id="cancelCoupon">Cancel</button>
+        <button class="btn btn-primary" id="saveCoupon">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  $("#cancelCoupon").onclick = ()=>bg.remove();
+  $("#saveCoupon").onclick = async ()=>{
+    const code = $("#cfCode").value.trim().toUpperCase();
+    const percent = parseFloat($("#cfPercent").value);
+    if(!code || isNaN(percent) || percent<=0 || percent>100){ toast("Enter a code and a percent between 1-100","err"); return; }
+    if(!state.db.coupons) state.db.coupons = [];
+    if(isNew){
+      if(state.db.coupons.some(c=>c.code.toUpperCase()===code)){ toast("That code already exists","err"); return; }
+      state.db.coupons.push({ id: uid(), code, percent, active:true, createdAt: nowIso(), updatedAt: nowIso() });
+    } else {
+      coupon.code = code; coupon.percent = percent;
+      coupon.active = $("#cfActive").checked;
+      coupon.updatedAt = nowIso();
+    }
+    await pushToDrive();
+    bg.remove();
+    render();
+  };
+  if(!isNew){
+    $("#delCoupon").onclick = async ()=>{
+      state.db.coupons = state.db.coupons.filter(c=>c.id!==coupon.id);
+      await pushToDrive();
+      bg.remove();
+      render();
+    };
+  }
+}
+
+/* ================= THEME EDITOR (developer only) ================= */
+function renderThemeEditor(el){
+  const t = state.db.meta.theme || {...DEFAULT_THEME};
+  const fields = [
+    ["bg","Background", t.bg||DEFAULT_THEME.bg],
+    ["bg2","Panels / cards", t.bg2||DEFAULT_THEME.bg2],
+    ["accent","Accent (buttons)", t.accent||DEFAULT_THEME.accent],
+    ["accentLight","Accent — hover", t.accentLight||DEFAULT_THEME.accentLight],
+    ["text","Text color", t.text||DEFAULT_THEME.text],
+  ];
+  el.innerHTML = `<div class="card">
+    <h3 style="margin-bottom:6px; font-size:15px;">App colors</h3>
+    <p style="font-size:12.5px; color:var(--crema-dim); margin-bottom:16px;">Changes apply to every device (cashier, admin, developer) once saved.</p>
+    <div class="theme-grid" id="themeGrid"></div>
+    <div style="display:flex; gap:10px;">
+      <button class="btn btn-outline" id="resetThemeBtn">Reset to default</button>
+      <button class="btn btn-primary" id="saveThemeBtn">Save colors</button>
+    </div>
+  </div>`;
+  const grid = $("#themeGrid");
+  const draft = {...t};
+  fields.forEach(([key,label,val])=>{
+    const row = document.createElement("div");
+    row.className = "theme-swatch-field";
+    row.innerHTML = `<input type="color" id="tf_${key}" value="${val}" />
+      <div style="flex:1;"><div class="tlabel">${label}</div><div class="tval" id="tv_${key}">${val}</div></div>`;
+    grid.appendChild(row);
+    row.querySelector("input").addEventListener("input", e=>{
+      draft[key] = e.target.value;
+      $("#tv_"+key).textContent = e.target.value;
+      applyThemeDraft(draft); // live preview
+    });
+  });
+  $("#saveThemeBtn").onclick = async ()=>{
+    state.db.meta.theme = draft;
+    applyTheme();
+    await pushToDrive();
+    toast("Theme saved", "ok");
+  };
+  $("#resetThemeBtn").onclick = async ()=>{
+    state.db.meta.theme = {...DEFAULT_THEME};
+    applyTheme();
+    await pushToDrive();
+    toast("Theme reset to default", "ok");
+    render();
+  };
+}
+
+function applyThemeDraft(draft){
+  const root = document.documentElement.style;
+  root.setProperty("--espresso", draft.bg);
+  root.setProperty("--espresso-2", draft.bg2);
+  root.setProperty("--copper", draft.accent);
+  root.setProperty("--copper-light", draft.accentLight);
+  root.setProperty("--paper", draft.text);
 }
 
 /* ---- product editor modal (developer only) ---- */
@@ -1004,9 +1327,10 @@ function openProductModal(product){
     const price = parseFloat($("#pfPrice").value);
     if(!name || isNaN(price)){ toast("Name and price are required","err"); return; }
     if(isNew){
+      const maxOrder = state.db.products.reduce((m,p)=>Math.max(m, p.order??0), -1);
       state.db.products.push({
         id: uid(), name, price, category: $("#pfCat").value.trim()||"Other",
-        emoji: $("#pfEmoji").value.trim()||"🧾", color: selColor, active:true, updatedAt: nowIso()
+        emoji: $("#pfEmoji").value.trim()||"🧾", color: selColor, active:true, order: maxOrder+1, updatedAt: nowIso()
       });
     } else {
       Object.assign(product, {
