@@ -158,6 +158,7 @@
     background:var(--copper); color:var(--accent-text);
   }
   .main{flex:1; padding:22px; max-width:1400px; width:100%; margin:0 auto;}
+  .main.main-full{max-width:100%;}
 
   /* ---------- POS (cashier) ---------- */
   .pos-layout{display:grid; grid-template-columns:1fr var(--numpad-width) var(--cart-width); gap:18px; align-items:start;}
@@ -420,7 +421,7 @@ function defaultDb(){
     meta: {
       appActive: true, businessName: "Roastline Coffee", logoDataUrl: null,
       currencySymbol: "$", currencyCode: "USD", freeLayout: false,
-      layout: { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, btnWidth: 110, btnHeight: 95 },
+      layout: { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, gridCols: 6, gridRows: 4 },
       roleLabels: { admin: "Admin", cashier: "Cashier" },
       receiptHeader: "", receiptFooter: "Thank you!", autoPrintReceipt: true,
       theme: {...DEFAULT_THEME}, updatedAt: nowIso()
@@ -750,12 +751,19 @@ async function pushToDrive(){
 async function flushOffline(){
   if(!state.dbFileId || !navigator.onLine) return;
   try{
+    if(!state.accessToken){
+      // booted from local cache with no live session yet — get a token first.
+      // Browsers can block an auto-opened popup that isn't from a direct click,
+      // so this is best-effort; the sync pill offers a manual retry either way.
+      await connectDrive();
+    }
     const remote = await driveReadFile(state.dbFileId);
     state.db = migrateDb(mergeDb(state.db, remote));
     await driveWriteFile(state.dbFileId, state.db);
     state.offlinePending = false;
     saveLocalCache();
     applyTheme();
+    startSyncLoop();
     toast("Back online — synced", "ok");
     render();
   }catch(e){ console.warn("flush failed", e); }
@@ -764,7 +772,7 @@ async function flushOffline(){
 function startSyncLoop(){
   clearInterval(state.syncTimer);
   state.syncTimer = setInterval(()=>{
-    if(state.offlinePending) flushOffline();
+    if(state.offlinePending || !state.accessToken) flushOffline();
     else pullFromDrive(true);
   }, CONFIG.SYNC_INTERVAL_MS);
 }
@@ -775,12 +783,21 @@ function renderIfLive(){
   else if(state.view==="cashier"){
     // just refresh the sync pill without rebuilding the whole cart/typing state
     const pill = document.getElementById("syncPill");
-    if(pill) pill.outerHTML = syncPillHtml();
+    if(pill){ pill.outerHTML = syncPillHtml(); wireSyncPill(); }
   }
 }
 function syncPillHtml(){
+  if(!state.accessToken){
+    return `<span class="pill" id="syncPill" style="cursor:pointer; border-color:var(--copper);"><span class="dot offline"></span>Tap to connect to Drive</span>`;
+  }
   const offline = state.offlinePending || !navigator.onLine;
-  return `<span class="pill" id="syncPill"><span class="dot ${offline?'offline':'live'}"></span>${offline ? "Offline — will sync" : (state.saving ? "Syncing…" : "Live")}</span>`;
+  return `<span class="pill" id="syncPill"${offline?' style="cursor:pointer;"':''}><span class="dot ${offline?'offline':'live'}"></span>${offline ? "Offline — tap to retry" : (state.saving ? "Syncing…" : "Live")}</span>`;
+}
+function wireSyncPill(){
+  const pill = document.getElementById("syncPill");
+  if(pill && (!state.accessToken || state.offlinePending)){
+    pill.onclick = ()=> flushOffline();
+  }
 }
 
 window.addEventListener("online", ()=>{ if(state.dbFileId) flushOffline(); });
@@ -810,6 +827,23 @@ async function init(){
     render();
     return;
   }
+
+  // If this device has synced before, boot straight into the app from the
+  // local cache — no network required — so the PWA is usable offline from a
+  // cold start, not just mid-session. If we're online, try a quiet reconnect;
+  // if that's blocked (browsers can block auto-opened popups with no direct
+  // click behind them) the top bar's sync pill offers a manual retry.
+  const cached = loadLocalCache();
+  if(cached && cached.db){
+    state.dbFileId = cached.dbFileId;
+    state.db = migrateDb(cached.db);
+    applyTheme();
+    state.view = "login";
+    render();
+    flushOffline();
+    return;
+  }
+
   state.view = "connect";
   render();
 }
@@ -974,7 +1008,7 @@ function renderShell(el, contentFn){
         <a class="link" id="logoutLink">Sign out</a>
       </div>
     </div>
-    <div class="main" id="mainArea"></div>
+    <div class="main${state.currentUser.role==="cashier"?" main-full":""}" id="mainArea"></div>
   `;
   el.appendChild(shell);
   $("#logoutLink").onclick = ()=>{
@@ -983,6 +1017,7 @@ function renderShell(el, contentFn){
   };
   $("#myAccountLink").onclick = openMyAccountModal;
   if($("#closeDayHeaderBtn")) $("#closeDayHeaderBtn").onclick = openCloseDayModal;
+  wireSyncPill();
   contentFn($("#mainArea"));
 }
 
@@ -1454,7 +1489,7 @@ function renderReportsList(el, editable){
               <td>${money(c.breakdown.cash)}</td>
               <td>${money(c.breakdown.card)}</td>
               <td style="text-align:right;">${money(c.totalSales)}</td>
-              <td><a class="link" data-print="${c.id}">Print</a></td>
+              <td><a class="link" data-print="${c.id}">Print</a>${editable?` · <a class="link" data-delete="${c.id}" style="color:var(--err);">Delete</a>`:""}</td>
             </tr>`).join("") || `<tr><td colspan="7" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
         </tbody>
       </table>
@@ -1477,6 +1512,19 @@ function renderReportsList(el, editable){
       printHTML(`<div class="receipt">${receiptWrap(rows)}</div>`);
     };
   });
+  if(editable){
+    el.querySelectorAll("[data-delete]").forEach(a=>{
+      a.onclick = async ()=>{
+        const c = closes.find(x=>x.id===a.dataset.delete);
+        if(!c) return;
+        if(!confirm(`Delete the ${c.date} report for ${c.cashierName}? This can't be undone.`)) return;
+        state.db.dayCloses = state.db.dayCloses.filter(x=>x.id!==c.id);
+        await pushToDrive();
+        toast("Report deleted", "ok");
+        render();
+      };
+    });
+  }
 
   if(state.currentUser.role==="developer"){
     const monthCard = document.createElement("div");
@@ -1547,6 +1595,14 @@ function renderMenuList(el, editable){
       <div class="drag-hint">${freeLayout ? "Drag any button to any spot on the canvas below — cashiers see the exact same layout." : "Drag a button to reorder it — cashiers see the new order right away."}</div>
       ${freeLayout ? `
         <div class="settings-section" style="margin:14px 0;">
+          <h4>Auto-size by grid</h4>
+          <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Set how many buttons should fit across and down the canvas — button width and height are calculated automatically to fill it evenly.</p>
+          <div class="inline-row" style="margin-bottom:14px;">
+            <div class="field"><label>Columns</label><input type="number" id="gridCols" min="2" max="14" value="${layout.gridCols||6}" /></div>
+            <div class="field"><label>Rows</label><input type="number" id="gridRows" min="1" max="10" value="${layout.gridRows||4}" /></div>
+            <button class="btn btn-primary" id="applyGridBtn">Apply</button>
+          </div>
+          <h4>Or set sizes manually</h4>
           <div class="inline-row">
             <div class="field"><label>Canvas height: <span id="lv_mCanvasHeight">${layout.canvasHeight}</span>px</label><input type="range" id="ls_mCanvasHeight" min="360" max="900" value="${layout.canvasHeight}" /></div>
             <div class="field"><label>Button width: <span id="lv_mBtnWidth">${layout.btnWidth}</span>px</label><input type="range" id="ls_mBtnWidth" min="70" max="180" value="${layout.btnWidth}" /></div>
@@ -1575,6 +1631,23 @@ function renderMenuList(el, editable){
         });
         $("#ls_"+domKey).addEventListener("change", async ()=>{ await pushToDrive(); });
       });
+      $("#applyGridBtn").onclick = async ()=>{
+        const cols = Math.max(2, parseInt($("#gridCols").value,10) || 6);
+        const rows = Math.max(1, parseInt($("#gridRows").value,10) || 4);
+        const canvas = $("#menuGrid");
+        const rect = canvas.getBoundingClientRect();
+        const gap = 10; // matches the canvas padding/gap used when placing buttons
+        const btnWidth = Math.max(60, Math.floor((rect.width - gap*(cols-1)) / cols));
+        const btnHeight = Math.max(50, Math.floor((rect.height - gap*(rows-1)) / rows));
+        state.db.meta.layout.gridCols = cols;
+        state.db.meta.layout.gridRows = rows;
+        state.db.meta.layout.btnWidth = btnWidth;
+        state.db.meta.layout.btnHeight = btnHeight;
+        applyLayout();
+        await pushToDrive();
+        toast(`Buttons sized to fit a ${cols}×${rows} grid`, "ok");
+        render();
+      };
     }
   }
 
