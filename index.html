@@ -56,7 +56,7 @@
     font-weight:600;
     font-size:14px;
     padding:10px 18px;
-    border-radius:4px;
+    border-radius:6px;
     border:1px solid transparent;
     cursor:pointer;
     transition:transform .08s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
@@ -77,7 +77,7 @@
     border:1px solid var(--line);
     color:var(--paper);
     padding:10px 12px;
-    border-radius:4px;
+    border-radius:6px;
     width:100%;
     outline:none;
   }
@@ -221,8 +221,8 @@
   .swatch.sel{border-color:var(--paper);}
 
   /* modal */
-  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,.4); backdrop-filter:blur(2px); display:flex; align-items:center; justify-content:center; z-index:500; padding:20px;}
-  .modal{background:var(--espresso-2); border:1px solid var(--line); border-radius:8px; padding:22px; max-width:440px; width:100%; max-height:85vh; overflow-y:auto; box-shadow:var(--shadow-lg);}
+  .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,.35); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:500; padding:20px;}
+  .modal{background:var(--espresso-2); background:color-mix(in srgb, var(--espresso-2) 88%, transparent); backdrop-filter:blur(20px) saturate(1.3); border:1px solid var(--line); border-radius:12px; padding:22px; max-width:440px; width:100%; max-height:85vh; overflow-y:auto; box-shadow:var(--shadow-lg);}
   .modal h3{margin-bottom:16px;}
   .modal-actions{display:flex; gap:10px; margin-top:18px; flex-wrap:wrap;}
   .modal-actions .btn{flex:1;}
@@ -340,6 +340,10 @@ const CONFIG = {
 const DEFAULT_THEME = {
   bg:"#f3f2f1", bg2:"#ffffff", accent:"#8a5a34", accentLight:"#a9723f", text:"#201f1e"
 };
+const LIGHT_THEME = { ...DEFAULT_THEME };
+const DARK_THEME = {
+  bg:"#1c1410", bg2:"#2a1f18", accent:"#b5652f", accentLight:"#d98a52", text:"#f6ede0"
+};
 
 const CURRENCY_PRESETS = [
   {code:"USD", symbol:"$"}, {code:"EUR", symbol:"€"}, {code:"GBP", symbol:"£"},
@@ -366,8 +370,7 @@ const state = {
   dragCategoryId: null,
   numpadAmount: "",
   numpadTarget: null,   // {id, name, isDrink} of a blank-price product being priced, or null for a free custom item
-  numpadName: "Custom item",
-  numpadIsDrink: true
+  numpadName: "Custom item"
 };
 
 const $ = sel => document.querySelector(sel);
@@ -488,6 +491,21 @@ function migrateDb(db){
 }
 
 /* apply theme colors from db.meta.theme onto the page */
+function hexLuminance(hex){
+  hex = (hex||"#ffffff").replace("#","");
+  if(hex.length===3) hex = hex.split("").map(c=>c+c).join("");
+  const r=parseInt(hex.substr(0,2),16)||0, g=parseInt(hex.substr(2,2),16)||0, b=parseInt(hex.substr(4,2),16)||0;
+  return (0.299*r+0.587*g+0.114*b)/255;
+}
+function applyDerivedNeutrals(bgHex){
+  const dark = hexLuminance(bgHex) < 0.5;
+  const root = document.documentElement.style;
+  root.setProperty("--line", dark ? "rgba(255,255,255,0.14)" : "#e1dfdd");
+  root.setProperty("--crema", dark ? "#e9c996" : "#605e5c");
+  root.setProperty("--crema-dim", dark ? "#c7a877" : "#8a8886");
+  root.setProperty("--paper-dim", dark ? "#d9cbb4" : "#484644");
+}
+
 function applyTheme(){
   const t = (state.db && state.db.meta && state.db.meta.theme) ? state.db.meta.theme : DEFAULT_THEME;
   const root = document.documentElement.style;
@@ -496,6 +514,7 @@ function applyTheme(){
   root.setProperty("--copper", t.accent || DEFAULT_THEME.accent);
   root.setProperty("--copper-light", t.accentLight || DEFAULT_THEME.accentLight);
   root.setProperty("--paper", t.text || DEFAULT_THEME.text);
+  applyDerivedNeutrals(t.bg || DEFAULT_THEME.bg);
   applyLayout();
 }
 function applyThemeDraft(draft){
@@ -505,6 +524,7 @@ function applyThemeDraft(draft){
   root.setProperty("--copper", draft.accent);
   root.setProperty("--copper-light", draft.accentLight);
   root.setProperty("--paper", draft.text);
+  applyDerivedNeutrals(draft.bg);
 }
 
 const DEFAULT_LAYOUT = { numpadWidth: 300, cartWidth: 340, canvasHeight: 560 };
@@ -1134,7 +1154,6 @@ function addToCart(product){
     // open price — hand off to the always-on numpad panel instead of adding directly
     state.numpadTarget = { id: product.id, name: product.name, isDrink: product.isDrink!==false };
     state.numpadName = product.name;
-    state.numpadIsDrink = product.isDrink!==false;
     state.numpadAmount = "";
     render();
     const panel = document.getElementById("numpadPanel");
@@ -1152,7 +1171,6 @@ function renderNumpadPanel(host){
   if(!host) return;
   host.innerHTML = `
     <div class="numpad-panel" id="numpadPanel">
-      <h3>🔢 Numpad</h3>
       ${state.numpadTarget ? `
         <div class="numpad-target"><span>Entering price for <b>${state.numpadTarget.name}</b></span><a id="npClearTarget">Cancel</a></div>
       ` : `
@@ -1160,7 +1178,6 @@ function renderNumpadPanel(host){
       `}
       <div class="numpad-display" id="npDisplay">${money(parseFloat(state.numpadAmount||"0"))}</div>
       <div class="numpad-grid" id="npGrid"></div>
-      <div class="field" style="margin-bottom:10px;"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="npDrinkCheck" style="width:auto;" ${state.numpadIsDrink?"checked":""}/> Count as a drink (eligible for coupons)</label></div>
       <button class="btn btn-primary btn-block" id="npAddBtn">Add to cart</button>
     </div>`;
   const grid = host.querySelector("#npGrid");
@@ -1178,20 +1195,21 @@ function renderNumpadPanel(host){
   });
   const nameInput = host.querySelector("#npNameInput");
   if(nameInput) nameInput.addEventListener("input", e=>{ state.numpadName = e.target.value; });
-  const drinkCheck = host.querySelector("#npDrinkCheck");
-  drinkCheck.addEventListener("change", e=>{ state.numpadIsDrink = e.target.checked; });
   const clearTarget = host.querySelector("#npClearTarget");
   if(clearTarget) clearTarget.onclick = ()=>{ state.numpadTarget = null; state.numpadAmount=""; state.numpadName="Custom item"; render(); };
   host.querySelector("#npAddBtn").onclick = ()=>{
     const price = parseFloat(state.numpadAmount);
     if(isNaN(price) || price<=0){ toast("Enter an amount first", "err"); return; }
     if(state.numpadTarget){
-      state.cart.push({ productId: state.numpadTarget.id, name: state.numpadTarget.name, price, qty:1, isDrink: state.numpadIsDrink });
+      // drink eligibility comes from how the developer set up this product — cashiers never choose it
+      state.cart.push({ productId: state.numpadTarget.id, name: state.numpadTarget.name, price, qty:1, isDrink: state.numpadTarget.isDrink!==false });
     } else {
       const name = (host.querySelector("#npNameInput") ? host.querySelector("#npNameInput").value.trim() : "") || "Custom item";
-      state.cart.push({ productId:null, name, price, qty:1, isDrink: state.numpadIsDrink, custom:true });
+      // free-typed items with no matching product are never coupon-eligible by default —
+      // if it needs to be, the developer should add it as a real (blank-price) menu button instead
+      state.cart.push({ productId:null, name, price, qty:1, isDrink:false, custom:true });
     }
-    state.numpadAmount = ""; state.numpadTarget = null; state.numpadName = "Custom item"; state.numpadIsDrink = true;
+    state.numpadAmount = ""; state.numpadTarget = null; state.numpadName = "Custom item";
     render();
   };
 }
@@ -1214,6 +1232,10 @@ async function completeSale(){
     date: todayStr()
   };
   state.db.sales.push(sale);
+  // coupons are single-use — discard it the moment it's actually used in a completed sale
+  if(state.appliedCoupon && totals.discountAmt > 0){
+    state.db.coupons = state.db.coupons.filter(c => c.code.toUpperCase() !== state.appliedCoupon.code.toUpperCase());
+  }
   state.cart = [];
   state.appliedCoupon = null;
   await pushToDrive();
@@ -1755,10 +1777,17 @@ function openCategoryModal(cat){
 function renderCouponsList(el, editable){
   const coupons = (state.db.coupons||[]).slice().sort((a,b)=> new Date(b.createdAt||0)-new Date(a.createdAt||0));
   el.innerHTML = `<div class="card"><h3 style="margin-bottom:6px; font-size:15px;">Coupons (${editable?"editable":"view only"})</h3>
-    <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">Coupons only discount drink items, and only one drink per sale — the most expensive eligible drink.</p>
+    <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">Coupons only discount drink items, one drink per sale (the most expensive eligible drink) — and each code works once. The moment a coupon is used in a completed sale, it's removed automatically.</p>
     <table><thead><tr><th>Code</th><th>Discount</th><th>Status</th>${editable?"<th></th>":""}</tr></thead>
     <tbody id="couponBody"></tbody></table>
-    ${editable?'<button class="btn btn-primary" id="addCouponBtn" style="margin-top:14px;">Add coupon</button>':""}
+    ${editable?`
+      <div style="display:flex; gap:10px; margin-top:14px; flex-wrap:wrap;">
+        <button class="btn btn-primary" id="addCouponBtn">Add coupon</button>
+        <button class="btn btn-outline" id="uploadCsvBtn">⬆️ Upload codes from CSV</button>
+        <input type="file" id="csvFileInput" accept=".csv" style="display:none;" />
+      </div>
+      <p style="font-size:11.5px; color:var(--crema-dim); margin-top:8px;">CSV format: one line per code, <code>code,percent</code> — e.g. <code>WELCOME10,10</code>. A header row is fine and will be skipped automatically.</p>
+    `:""}
     </div>`;
   const body = $("#couponBody");
   if(coupons.length===0){
@@ -1775,6 +1804,30 @@ function renderCouponsList(el, editable){
     $("#addCouponBtn").onclick = ()=>openCouponModal(null);
     body.querySelectorAll("a[data-cid]").forEach(a=>{
       a.onclick = ()=>openCouponModal(coupons.find(c=>c.id===a.dataset.cid));
+    });
+    $("#uploadCsvBtn").onclick = ()=> $("#csvFileInput").click();
+    $("#csvFileInput").addEventListener("change", async e=>{
+      const file = e.target.files[0];
+      if(!file) return;
+      const text = await file.text();
+      const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+      let added = 0, skipped = 0;
+      if(!state.db.coupons) state.db.coupons = [];
+      const existingCodes = new Set(state.db.coupons.map(c=>c.code.toUpperCase()));
+      lines.forEach(line=>{
+        const parts = line.split(",").map(p=>p.trim());
+        const code = (parts[0]||"").toUpperCase();
+        const percent = parseFloat(parts[1]);
+        if(!code || code==="CODE" || isNaN(percent) || percent<=0 || percent>100){ skipped++; return; }
+        if(existingCodes.has(code)){ skipped++; return; }
+        state.db.coupons.push({ id: uid(), code, percent, active:true, createdAt: nowIso(), updatedAt: nowIso() });
+        existingCodes.add(code);
+        added++;
+      });
+      if(added>0) await pushToDrive();
+      toast(`${added} coupon${added===1?"":"s"} added${skipped?`, ${skipped} skipped`:""}`, added>0?"ok":"err");
+      e.target.value = "";
+      render();
     });
   }
 }
@@ -1948,7 +2001,12 @@ function renderSettingsPanel(el){
       </div>
 
       <div class="settings-section">
-        <h4>App colors</h4>
+        <h4>Theme</h4>
+        <div style="display:flex; gap:10px; margin-bottom:14px;">
+          <button class="btn btn-outline" id="themeLightBtn" style="flex:1;">☀️ Light</button>
+          <button class="btn btn-outline" id="themeDarkBtn" style="flex:1;">🌙 Dark</button>
+        </div>
+        <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Pick a starting point, then fine-tune individual colors below if you like.</p>
         <div class="theme-grid" id="themeGrid"></div>
       </div>
 
@@ -1963,26 +2021,36 @@ function renderSettingsPanel(el){
       <button class="btn btn-primary btn-block" id="saveSettingsBtn">Save settings</button>
     </div>`;
 
-  const fields = [
-    ["bg","Background", draft.theme.bg],
-    ["bg2","Panels / cards", draft.theme.bg2],
-    ["accent","Accent (buttons)", draft.theme.accent],
-    ["accentLight","Accent — hover", draft.theme.accentLight],
-    ["text","Text color", draft.theme.text],
-  ];
+  const fieldLabels = { bg:"Background", bg2:"Panels / cards", accent:"Accent (buttons)", accentLight:"Accent — hover", text:"Text color" };
   const grid = $("#themeGrid");
-  fields.forEach(([key,label,val])=>{
-    const row = document.createElement("div");
-    row.className = "theme-swatch-field";
-    row.innerHTML = `<input type="color" id="tf_${key}" value="${val}" />
-      <div style="flex:1;"><div class="tlabel">${label}</div><div class="tval" id="tv_${key}">${val}</div></div>`;
-    grid.appendChild(row);
-    row.querySelector("input").addEventListener("input", e=>{
-      draft.theme[key] = e.target.value;
-      $("#tv_"+key).textContent = e.target.value;
-      applyThemeDraft(draft.theme);
+  function renderThemeGrid(){
+    grid.innerHTML = "";
+    Object.keys(fieldLabels).forEach(key=>{
+      const val = draft.theme[key];
+      const row = document.createElement("div");
+      row.className = "theme-swatch-field";
+      row.innerHTML = `<input type="color" id="tf_${key}" value="${val}" />
+        <div style="flex:1;"><div class="tlabel">${fieldLabels[key]}</div><div class="tval" id="tv_${key}">${val}</div></div>`;
+      grid.appendChild(row);
+      row.querySelector("input").addEventListener("input", e=>{
+        draft.theme[key] = e.target.value;
+        $("#tv_"+key).textContent = e.target.value;
+        applyThemeDraft(draft.theme);
+      });
     });
-  });
+  }
+  renderThemeGrid();
+
+  $("#themeLightBtn").onclick = ()=>{
+    draft.theme = { ...LIGHT_THEME };
+    applyThemeDraft(draft.theme);
+    renderThemeGrid();
+  };
+  $("#themeDarkBtn").onclick = ()=>{
+    draft.theme = { ...DARK_THEME };
+    applyThemeDraft(draft.theme);
+    renderThemeGrid();
+  };
 
   $("#stCurrencyPreset").onchange = e=>{
     $("#customSymbolField").style.display = e.target.value==="CUSTOM" ? "block" : "none";
