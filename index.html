@@ -14,23 +14,26 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
-    --espresso:#f3f2f1;
+    --espresso:#f3f3f3;
     --espresso-2:#ffffff;
     --crema:#605e5c;
     --crema-dim:#8a8886;
-    --copper:#8a5a34;
-    --copper-light:#a9723f;
-    --paper:#201f1e;
+    --copper:#0078d4;
+    --copper-light:#106ebe;
+    --paper:#1b1b1b;
     --paper-dim:#484644;
     --ok:#107c10;
     --err:#d13438;
     --line: #e1dfdd;
+    --accent-text: #ffffff;
     --shadow-sm: 0 1px 2px rgba(0,0,0,.07), 0 1px 1px rgba(0,0,0,.05);
     --shadow-md: 0 3.2px 7.2px rgba(0,0,0,.11), 0 0.6px 1.8px rgba(0,0,0,.09);
     --shadow-lg: 0 6.4px 14.4px rgba(0,0,0,.13), 0 1.2px 3.6px rgba(0,0,0,.10);
     --numpad-width: 300px;
     --cart-width: 340px;
     --canvas-height: clamp(420px, 62vh, 680px);
+    --btn-width: 110px;
+    --btn-height: 95px;
   }
   *{box-sizing:border-box;}
   html,body{margin:0;padding:0;}
@@ -62,7 +65,7 @@
     transition:transform .08s ease, background .15s ease, border-color .15s ease, box-shadow .15s ease;
   }
   .btn:active{transform:scale(0.97);}
-  .btn-primary{background:var(--copper); color:#fff; box-shadow:var(--shadow-sm);}
+  .btn-primary{background:var(--copper); color:var(--accent-text); box-shadow:var(--shadow-sm);}
   .btn-primary:hover{background:var(--copper-light); box-shadow:var(--shadow-md);}
   .btn-outline{background:var(--espresso-2); color:var(--paper); border-color:var(--line); box-shadow:var(--shadow-sm);}
   .btn-outline:hover{border-color:var(--crema-dim); box-shadow:var(--shadow-md);}
@@ -132,7 +135,7 @@
   .brand .mark{
     width:38px;height:38px;border-radius:6px;background:var(--copper);
     display:flex;align-items:center;justify-content:center;
-    font-weight:700; color:#fff; font-size:18px; overflow:hidden;
+    font-weight:700; color:var(--accent-text); font-size:18px; overflow:hidden;
   }
   .brand .mark img{width:100%; height:100%; object-fit:cover;}
   .brand .name{font-size:19px;}
@@ -152,7 +155,7 @@
   .topbar .actions{display:flex; align-items:center; gap:14px;}
   .role-tag{
     font-size:10px; font-weight:700; letter-spacing:.06em; padding:3px 9px; border-radius:4px;
-    background:var(--copper); color:#fff;
+    background:var(--copper); color:var(--accent-text);
   }
   .main{flex:1; padding:22px; max-width:1400px; width:100%; margin:0 auto;}
 
@@ -198,7 +201,7 @@
   .total-row .amt{font-size:clamp(20px,2vw,26px); font-weight:700;}
   .pay-toggle{display:flex; gap:8px; margin-bottom:10px;}
   .pay-toggle button{flex:1; padding:9px; border-radius:4px; border:1px solid var(--line); background:transparent; color:var(--crema-dim); cursor:pointer; font-size:13px; font-weight:600;}
-  .pay-toggle button.active{background:var(--copper); color:#fff; border-color:var(--copper);}
+  .pay-toggle button.active{background:var(--copper); color:var(--accent-text); border-color:var(--copper);}
   .empty-cart{padding:30px 10px; text-align:center; color:var(--crema-dim); font-size:13px;}
 
   /* ---------- tables ---------- */
@@ -273,7 +276,7 @@
     border:1px dashed var(--line); border-radius:8px; overflow:hidden; touch-action:none;
   }
   .layout-canvas .product-btn{
-    position:absolute; width:clamp(88px,11vw,120px); height:clamp(78px,10vw,100px); margin:0; user-select:none;
+    position:absolute; width:var(--btn-width); height:var(--btn-height); margin:0; user-select:none;
   }
   .layout-canvas .product-btn.dragging-free{ box-shadow:var(--shadow-lg); z-index:50; opacity:0.9; }
   .free-toggle-row{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
@@ -289,7 +292,7 @@
   .numpad-display{font-family:'JetBrains Mono',monospace; font-size:clamp(20px,2.4vw,28px); text-align:right; padding:12px 14px; background:var(--espresso); border:1px solid var(--line); border-radius:6px; margin-bottom:12px;}
   .numpad-grid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:14px;}
   .numpad-grid button{padding:clamp(10px,1.6vw,16px); font-size:clamp(15px,1.6vw,19px); border-radius:6px; border:1px solid var(--line); background:var(--espresso); color:var(--paper); cursor:pointer; font-family:'JetBrains Mono',monospace;}
-  .numpad-grid button:active{background:var(--copper); color:#fff;}
+  .numpad-grid button:active{background:var(--copper); color:var(--accent-text);}
 
   /* ---------- settings ---------- */
   .settings-section{margin-bottom:24px;}
@@ -337,13 +340,15 @@ const CONFIG = {
   SYNC_INTERVAL_MS: 20000
 };
 
-const DEFAULT_THEME = {
-  bg:"#f3f2f1", bg2:"#ffffff", accent:"#8a5a34", accentLight:"#a9723f", text:"#201f1e"
+/* Matches Windows 11's actual system Light/Dark palettes (window bg, card/control
+   surfaces, default accent blue, and text) so the quick-select presets feel native. */
+const LIGHT_THEME = {
+  bg:"#f3f3f3", bg2:"#ffffff", accent:"#0078d4", accentLight:"#106ebe", text:"#1b1b1b"
 };
-const LIGHT_THEME = { ...DEFAULT_THEME };
 const DARK_THEME = {
-  bg:"#1c1410", bg2:"#2a1f18", accent:"#b5652f", accentLight:"#d98a52", text:"#f6ede0"
+  bg:"#202020", bg2:"#2c2c2c", accent:"#4cc2ff", accentLight:"#60cdff", text:"#ffffff"
 };
+const DEFAULT_THEME = { ...LIGHT_THEME };
 
 const CURRENCY_PRESETS = [
   {code:"USD", symbol:"$"}, {code:"EUR", symbol:"€"}, {code:"GBP", symbol:"£"},
@@ -369,8 +374,7 @@ const state = {
   dragProductId: null,
   dragCategoryId: null,
   numpadAmount: "",
-  numpadTarget: null,   // {id, name, isDrink} of a blank-price product being priced, or null for a free custom item
-  numpadName: "Custom item"
+  numpadTarget: null   // null (locked), {kind:"product", id, name, isDrink}, or {kind:"coupon"}
 };
 
 const $ = sel => document.querySelector(sel);
@@ -416,7 +420,8 @@ function defaultDb(){
     meta: {
       appActive: true, businessName: "Roastline Coffee", logoDataUrl: null,
       currencySymbol: "$", currencyCode: "USD", freeLayout: false,
-      layout: { numpadWidth: 300, cartWidth: 340, canvasHeight: 560 },
+      layout: { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, btnWidth: 110, btnHeight: 95 },
+      roleLabels: { admin: "Admin", cashier: "Cashier" },
       receiptHeader: "", receiptFooter: "Thank you!", autoPrintReceipt: true,
       theme: {...DEFAULT_THEME}, updatedAt: nowIso()
     },
@@ -447,7 +452,12 @@ function migrateDb(db){
   if(!db.meta.currencySymbol) db.meta.currencySymbol = "$";
   if(!db.meta.currencyCode) db.meta.currencyCode = "USD";
   if(db.meta.freeLayout===undefined) db.meta.freeLayout = false;
-  if(!db.meta.layout) db.meta.layout = { numpadWidth: 300, cartWidth: 340, canvasHeight: 560 };
+  if(!db.meta.layout) db.meta.layout = { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, btnWidth: 110, btnHeight: 95 };
+  if(db.meta.layout.btnWidth===undefined) db.meta.layout.btnWidth = 110;
+  if(db.meta.layout.btnHeight===undefined) db.meta.layout.btnHeight = 95;
+  if(!db.meta.roleLabels) db.meta.roleLabels = { admin: "Admin", cashier: "Cashier" };
+  if(!db.meta.roleLabels.admin) db.meta.roleLabels.admin = "Admin";
+  if(!db.meta.roleLabels.cashier) db.meta.roleLabels.cashier = "Cashier";
   if(db.meta.receiptHeader===undefined) db.meta.receiptHeader = "";
   if(!db.meta.receiptFooter) db.meta.receiptFooter = "Thank you!";
   if(db.meta.autoPrintReceipt===undefined) db.meta.autoPrintReceipt = true;
@@ -505,6 +515,12 @@ function applyDerivedNeutrals(bgHex){
   root.setProperty("--crema-dim", dark ? "#c7a877" : "#8a8886");
   root.setProperty("--paper-dim", dark ? "#d9cbb4" : "#484644");
 }
+/* text placed on top of the accent color (buttons, badges) needs to flip
+   dark/light depending on how bright the accent itself is */
+function applyAccentText(accentHex){
+  const dark = hexLuminance(accentHex) < 0.6;
+  document.documentElement.style.setProperty("--accent-text", dark ? "#ffffff" : "#1b1b1b");
+}
 
 function applyTheme(){
   const t = (state.db && state.db.meta && state.db.meta.theme) ? state.db.meta.theme : DEFAULT_THEME;
@@ -515,6 +531,7 @@ function applyTheme(){
   root.setProperty("--copper-light", t.accentLight || DEFAULT_THEME.accentLight);
   root.setProperty("--paper", t.text || DEFAULT_THEME.text);
   applyDerivedNeutrals(t.bg || DEFAULT_THEME.bg);
+  applyAccentText(t.accent || DEFAULT_THEME.accent);
   applyLayout();
 }
 function applyThemeDraft(draft){
@@ -525,21 +542,33 @@ function applyThemeDraft(draft){
   root.setProperty("--copper-light", draft.accentLight);
   root.setProperty("--paper", draft.text);
   applyDerivedNeutrals(draft.bg);
+  applyAccentText(draft.accent);
 }
 
-const DEFAULT_LAYOUT = { numpadWidth: 300, cartWidth: 340, canvasHeight: 560 };
+const DEFAULT_LAYOUT = { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, btnWidth: 110, btnHeight: 95 };
 function applyLayout(){
   const l = (state.db && state.db.meta && state.db.meta.layout) ? state.db.meta.layout : DEFAULT_LAYOUT;
   const root = document.documentElement.style;
   root.setProperty("--numpad-width", (l.numpadWidth||DEFAULT_LAYOUT.numpadWidth) + "px");
   root.setProperty("--cart-width", (l.cartWidth||DEFAULT_LAYOUT.cartWidth) + "px");
   root.setProperty("--canvas-height", (l.canvasHeight||DEFAULT_LAYOUT.canvasHeight) + "px");
+  root.setProperty("--btn-width", (l.btnWidth||DEFAULT_LAYOUT.btnWidth) + "px");
+  root.setProperty("--btn-height", (l.btnHeight||DEFAULT_LAYOUT.btnHeight) + "px");
 }
 function applyLayoutDraft(draft){
   const root = document.documentElement.style;
   root.setProperty("--numpad-width", draft.numpadWidth + "px");
   root.setProperty("--cart-width", draft.cartWidth + "px");
   root.setProperty("--canvas-height", draft.canvasHeight + "px");
+  root.setProperty("--btn-width", draft.btnWidth + "px");
+  root.setProperty("--btn-height", draft.btnHeight + "px");
+}
+
+/* developer-customizable display names for the admin/cashier roles */
+function roleLabel(key){
+  if(key==="developer") return "Developer";
+  const labels = state.db && state.db.meta && state.db.meta.roleLabels;
+  return (labels && labels[key]) || (key.charAt(0).toUpperCase()+key.slice(1));
 }
 
 /* print any HTML fragment using a hidden print-only container */
@@ -929,17 +958,18 @@ function renderLoginScreen(el){
 function renderShell(el, contentFn){
   const shell = document.createElement("div");
   shell.className = "shell";
-  const roleLabel = {cashier:"Cashier", admin:"Admin", developer:"Developer"}[state.currentUser.role];
+  const roleLabelText = roleLabel(state.currentUser.role);
   const m = state.db.meta;
   shell.innerHTML = `
     <div class="topbar">
       <div class="left">
-        <div class="mark" style="width:30px;height:30px;border-radius:7px;background:var(--copper);display:flex;align-items:center;justify-content:center;font-weight:700;color:#fff;font-size:14px; overflow:hidden;">${m.logoDataUrl ? `<img src="${m.logoDataUrl}" style="width:100%;height:100%;object-fit:cover;"/>` : "R"}</div>
+        <div class="mark" style="width:30px;height:30px;border-radius:7px;background:var(--copper);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent-text);font-size:14px; overflow:hidden;">${m.logoDataUrl ? `<img src="${m.logoDataUrl}" style="width:100%;height:100%;object-fit:cover;"/>` : "R"}</div>
         <div class="who">${m.businessName||"Roastline POS"} — <b>${state.currentUser.name || state.currentUser.username}</b></div>
-        <span class="role-tag">${roleLabel}</span>
+        <span class="role-tag">${roleLabelText}</span>
         ${syncPillHtml()}
       </div>
       <div class="actions">
+        ${state.currentUser.role==="cashier" ? `<button class="btn btn-outline" id="closeDayHeaderBtn">Close day &amp; get report</button>` : ""}
         <a class="link" id="myAccountLink">My account</a>
         <a class="link" id="logoutLink">Sign out</a>
       </div>
@@ -952,6 +982,7 @@ function renderShell(el, contentFn){
     state.view = "login"; render();
   };
   $("#myAccountLink").onclick = openMyAccountModal;
+  if($("#closeDayHeaderBtn")) $("#closeDayHeaderBtn").onclick = openCloseDayModal;
   contentFn($("#mainArea"));
 }
 
@@ -1063,10 +1094,7 @@ function renderCashierView(el){
         <div class="applied-coupon"><span>🏷️ ${state.appliedCoupon.code} — ${state.appliedCoupon.percent}% off one drink</span><a id="removeCoupon">Remove</a></div>
         ${totals.discountAmt===0 ? `<div style="font-size:11.5px; color:var(--crema-dim); margin-bottom:8px;">This coupon only applies to drinks — add a drink to use it.</div>` : ""}
       ` : `
-        <div class="coupon-row">
-          <input id="couponInput" placeholder="Coupon code" />
-          <button class="btn btn-outline" id="applyCouponBtn">Apply</button>
-        </div>
+        <button class="btn btn-outline btn-block" id="enterCouponBtn" style="margin-bottom:12px;">🏷️ Enter coupon code</button>
       `}
       ${totals.discountAmt>0 ? `<div class="discount-row"><span>Discount (1 drink)</span><span>−${money(totals.discountAmt)}</span></div>` : ""}
       <div class="total-row"><span style="color:var(--crema-dim); font-size:13px;">Total</span><span class="amt">${money(totals.total)}</span></div>
@@ -1075,7 +1103,6 @@ function renderCashierView(el){
         <button data-pay="card" class="${state.payMethod==='card'?'active':''}">Card</button>
       </div>
       <button class="btn btn-primary btn-block" id="checkoutBtn" ${state.cart.length===0?"disabled":""}>Complete sale — ${money(totals.total)}</button>
-      <button class="btn btn-outline btn-block" style="margin-top:8px;" id="closeDayBtn">Close day &amp; get report</button>
     </div>`;
   wrap.appendChild(gridCol);
   wrap.appendChild(numpadCol);
@@ -1115,17 +1142,14 @@ function renderCashierView(el){
     b.onclick = ()=>{ state.payMethod = b.dataset.pay; render(); };
   });
   $("#checkoutBtn").onclick = completeSale;
-  $("#closeDayBtn").onclick = openCloseDayModal;
-  if($("#applyCouponBtn")){
-    $("#applyCouponBtn").onclick = ()=>{
-      const code = $("#couponInput").value.trim();
-      if(!code) return;
-      const match = (state.db.coupons||[]).find(c => c.code.toLowerCase()===code.toLowerCase() && c.active!==false);
-      if(!match){ toast("Coupon not found or inactive", "err"); return; }
-      state.appliedCoupon = { code: match.code, percent: match.percent };
+  if($("#enterCouponBtn")){
+    $("#enterCouponBtn").onclick = ()=>{
+      state.numpadTarget = { kind:"coupon" };
+      state.numpadAmount = "";
       render();
+      const panel = document.getElementById("numpadPanel");
+      if(panel) panel.scrollIntoView({behavior:"smooth", block:"center"});
     };
-    $("#couponInput").addEventListener("keydown", e=>{ if(e.key==="Enter") $("#applyCouponBtn").click(); });
   }
   if($("#removeCoupon")){
     $("#removeCoupon").onclick = ()=>{ state.appliedCoupon = null; render(); };
@@ -1152,8 +1176,7 @@ function computeCartTotals(cart, coupon){
 function addToCart(product){
   if(product.price===null || product.price===undefined){
     // open price — hand off to the always-on numpad panel instead of adding directly
-    state.numpadTarget = { id: product.id, name: product.name, isDrink: product.isDrink!==false };
-    state.numpadName = product.name;
+    state.numpadTarget = { kind:"product", id: product.id, name: product.name, isDrink: product.isDrink!==false };
     state.numpadAmount = "";
     render();
     const panel = document.getElementById("numpadPanel");
@@ -1166,50 +1189,71 @@ function addToCart(product){
   render();
 }
 
-/* ---- always-visible numpad panel (not a modal) for open-price items ---- */
+/* ---- always-visible numpad panel (not a modal) ----
+   Locked/idle until the cashier either taps an open-price item (prices it)
+   or taps "Enter coupon code" (types a code) — it never accepts digits on
+   its own and there is no freeform "custom item" entry point anymore. */
 function renderNumpadPanel(host){
   if(!host) return;
+  const target = state.numpadTarget;
+  const locked = !target;
+  let headerHtml, displayHtml, btnLabel;
+  if(!target){
+    headerHtml = `<div class="numpad-target"><span>Tap an item with no price, or "Enter coupon code", to begin.</span></div>`;
+    displayHtml = `—`;
+    btnLabel = "Add to cart";
+  } else if(target.kind==="coupon"){
+    headerHtml = `<div class="numpad-target"><span>Entering <b>coupon code</b></span><a id="npClearTarget">Cancel</a></div>`;
+    displayHtml = state.numpadAmount || "0";
+    btnLabel = "Apply coupon";
+  } else {
+    headerHtml = `<div class="numpad-target"><span>Entering price for <b>${target.name}</b></span><a id="npClearTarget">Cancel</a></div>`;
+    displayHtml = money(parseFloat(state.numpadAmount||"0"));
+    btnLabel = "Add to cart";
+  }
   host.innerHTML = `
     <div class="numpad-panel" id="numpadPanel">
-      ${state.numpadTarget ? `
-        <div class="numpad-target"><span>Entering price for <b>${state.numpadTarget.name}</b></span><a id="npClearTarget">Cancel</a></div>
-      ` : `
-        <div class="field" style="margin-bottom:10px;"><input id="npNameInput" value="${state.numpadName}" placeholder="Item name" /></div>
-      `}
-      <div class="numpad-display" id="npDisplay">${money(parseFloat(state.numpadAmount||"0"))}</div>
+      ${headerHtml}
+      <div class="numpad-display" id="npDisplay">${displayHtml}</div>
       <div class="numpad-grid" id="npGrid"></div>
-      <button class="btn btn-primary btn-block" id="npAddBtn">Add to cart</button>
+      <button class="btn btn-primary btn-block" id="npAddBtn" ${locked?"disabled":""}>${btnLabel}</button>
     </div>`;
   const grid = host.querySelector("#npGrid");
   const keys = ["1","2","3","4","5","6","7","8","9",".","0","⌫"];
   keys.forEach(k=>{
     const b = document.createElement("button");
     b.textContent = k;
+    b.disabled = locked || (k==="." && target && target.kind==="coupon"); // coupon codes are numeric-only
     b.onclick = ()=>{
+      if(locked) return;
       if(k==="⌫") state.numpadAmount = state.numpadAmount.slice(0,-1);
       else if(k==="." && state.numpadAmount.includes(".")) {}
       else state.numpadAmount += k;
-      host.querySelector("#npDisplay").innerHTML = money(parseFloat(state.numpadAmount||"0"));
+      const disp = host.querySelector("#npDisplay");
+      if(target && target.kind==="coupon") disp.textContent = state.numpadAmount || "0";
+      else disp.innerHTML = money(parseFloat(state.numpadAmount||"0"));
     };
     grid.appendChild(b);
   });
-  const nameInput = host.querySelector("#npNameInput");
-  if(nameInput) nameInput.addEventListener("input", e=>{ state.numpadName = e.target.value; });
   const clearTarget = host.querySelector("#npClearTarget");
-  if(clearTarget) clearTarget.onclick = ()=>{ state.numpadTarget = null; state.numpadAmount=""; state.numpadName="Custom item"; render(); };
+  if(clearTarget) clearTarget.onclick = ()=>{ state.numpadTarget = null; state.numpadAmount=""; render(); };
   host.querySelector("#npAddBtn").onclick = ()=>{
+    if(locked) return;
+    if(target.kind==="coupon"){
+      const code = state.numpadAmount.trim();
+      if(!code){ toast("Enter a code first", "err"); return; }
+      const match = (state.db.coupons||[]).find(c => c.code.toUpperCase()===code.toUpperCase() && c.active!==false);
+      if(!match){ toast("Coupon not found or inactive", "err"); return; }
+      state.appliedCoupon = { code: match.code, percent: match.percent };
+      state.numpadAmount = ""; state.numpadTarget = null;
+      render();
+      return;
+    }
     const price = parseFloat(state.numpadAmount);
     if(isNaN(price) || price<=0){ toast("Enter an amount first", "err"); return; }
-    if(state.numpadTarget){
-      // drink eligibility comes from how the developer set up this product — cashiers never choose it
-      state.cart.push({ productId: state.numpadTarget.id, name: state.numpadTarget.name, price, qty:1, isDrink: state.numpadTarget.isDrink!==false });
-    } else {
-      const name = (host.querySelector("#npNameInput") ? host.querySelector("#npNameInput").value.trim() : "") || "Custom item";
-      // free-typed items with no matching product are never coupon-eligible by default —
-      // if it needs to be, the developer should add it as a real (blank-price) menu button instead
-      state.cart.push({ productId:null, name, price, qty:1, isDrink:false, custom:true });
-    }
-    state.numpadAmount = ""; state.numpadTarget = null; state.numpadName = "Custom item";
+    // drink eligibility comes from how the developer set up this product — cashiers never choose it
+    state.cart.push({ productId: target.id, name: target.name, price, qty:1, isDrink: target.isDrink!==false });
+    state.numpadAmount = ""; state.numpadTarget = null;
     render();
   };
 }
@@ -1494,12 +1538,22 @@ function exportMonthlyExcel(monthValue){
 /* ---- menu (flat, drag-reorderable) ---- */
 function renderMenuList(el, editable){
   const freeLayout = !!state.db.meta.freeLayout;
+  const layout = state.db.meta.layout || DEFAULT_LAYOUT;
   el.innerHTML = `<div class="card"><h3 style="margin-bottom:6px; font-size:15px;">Menu (${editable?"editable":"view only"})</h3>
     ${editable ? `
       <div class="free-toggle-row">
         <label style="display:flex; align-items:center; gap:8px; margin:0;"><input type="checkbox" id="freeLayoutToggle" style="width:auto;" ${freeLayout?"checked":""}/> Free-form layout (drag buttons anywhere on the cashier screen)</label>
       </div>
       <div class="drag-hint">${freeLayout ? "Drag any button to any spot on the canvas below — cashiers see the exact same layout." : "Drag a button to reorder it — cashiers see the new order right away."}</div>
+      ${freeLayout ? `
+        <div class="settings-section" style="margin:14px 0;">
+          <div class="inline-row">
+            <div class="field"><label>Canvas height: <span id="lv_mCanvasHeight">${layout.canvasHeight}</span>px</label><input type="range" id="ls_mCanvasHeight" min="360" max="900" value="${layout.canvasHeight}" /></div>
+            <div class="field"><label>Button width: <span id="lv_mBtnWidth">${layout.btnWidth}</span>px</label><input type="range" id="ls_mBtnWidth" min="70" max="180" value="${layout.btnWidth}" /></div>
+            <div class="field"><label>Button height: <span id="lv_mBtnHeight">${layout.btnHeight}</span>px</label><input type="range" id="ls_mBtnHeight" min="60" max="160" value="${layout.btnHeight}" /></div>
+          </div>
+        </div>
+      ` : ""}
     ` : ""}
     <div id="menuGrid" class="${freeLayout ? 'layout-canvas' : 'product-grid'}"></div></div>`;
 
@@ -1509,6 +1563,19 @@ function renderMenuList(el, editable){
       await pushToDrive();
       render();
     };
+    if(freeLayout){
+      const sizeMap = { mCanvasHeight:"canvasHeight", mBtnWidth:"btnWidth", mBtnHeight:"btnHeight" };
+      Object.keys(sizeMap).forEach(domKey=>{
+        const metaKey = sizeMap[domKey];
+        $("#ls_"+domKey).addEventListener("input", e=>{
+          const val = parseInt(e.target.value,10);
+          $("#lv_"+domKey).textContent = val;
+          state.db.meta.layout[metaKey] = val;
+          applyLayout();
+        });
+        $("#ls_"+domKey).addEventListener("change", async ()=>{ await pushToDrive(); });
+      });
+    }
   }
 
   const grid = $("#menuGrid");
@@ -1891,7 +1958,7 @@ function renderTeamList(el, editable){
   }
   visibleUsers.forEach(u=>{
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${u.name}</td><td class="mono">${u.username}</td><td style="text-transform:capitalize;">${u.role}</td>
+    tr.innerHTML = `<td>${u.name}</td><td class="mono">${u.username}</td><td>${roleLabel(u.role)}</td>
       <td style="color:${u.active===false?'var(--err)':'var(--ok)'};">${u.active===false?"Disabled":"Active"}</td>
       ${editable?`<td><a class="link" data-uid="${u.id}">Edit</a></td>`:""}`;
     body.appendChild(tr);
@@ -1915,8 +1982,8 @@ function openUserModal(user){
       <div class="field"><label>Username</label><input id="ufUser" value="${user?user.username:""}" ${user?"disabled":""} /></div>
       <div class="field"><label>Role</label>
         <select id="ufRole">
-          <option value="cashier" ${user&&user.role==='cashier'?'selected':''}>Cashier</option>
-          <option value="admin" ${user&&user.role==='admin'?'selected':''}>Admin</option>
+          <option value="cashier" ${user&&user.role==='cashier'?'selected':''}>${roleLabel('cashier')}</option>
+          <option value="admin" ${user&&user.role==='admin'?'selected':''}>${roleLabel('admin')}</option>
         </select>
       </div>
       <div class="field"><label>${isNew?"Password":"New password (leave blank to keep current)"}</label><input id="ufPass" type="password" /></div>
@@ -2015,7 +2082,15 @@ function renderSettingsPanel(el){
         <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Adjust how much room the numpad and order panels take up on the cashier screen.</p>
         <div class="field"><label>Numpad width: <span id="lv_numpadWidth">${draft.layout.numpadWidth}</span>px</label><input type="range" id="ls_numpadWidth" min="220" max="420" value="${draft.layout.numpadWidth}" /></div>
         <div class="field"><label>Order panel width: <span id="lv_cartWidth">${draft.layout.cartWidth}</span>px</label><input type="range" id="ls_cartWidth" min="280" max="480" value="${draft.layout.cartWidth}" /></div>
-        <div class="field"><label>Free-form canvas height: <span id="lv_canvasHeight">${draft.layout.canvasHeight}</span>px</label><input type="range" id="ls_canvasHeight" min="360" max="900" value="${draft.layout.canvasHeight}" /></div>
+      </div>
+
+      <div class="settings-section">
+        <h4>Role names</h4>
+        <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Rename how these two roles appear throughout the app — the underlying permissions don't change.</p>
+        <div class="inline-row">
+          <div class="field"><label>"Cashier" is called</label><input id="stCashierLabel" value="${(m.roleLabels&&m.roleLabels.cashier)||'Cashier'}" /></div>
+          <div class="field"><label>"Admin" is called</label><input id="stAdminLabel" value="${(m.roleLabels&&m.roleLabels.admin)||'Admin'}" /></div>
+        </div>
       </div>
 
       <button class="btn btn-primary btn-block" id="saveSettingsBtn">Save settings</button>
@@ -2056,7 +2131,7 @@ function renderSettingsPanel(el){
     $("#customSymbolField").style.display = e.target.value==="CUSTOM" ? "block" : "none";
   };
 
-  ["numpadWidth","cartWidth","canvasHeight"].forEach(key=>{
+  ["numpadWidth","cartWidth"].forEach(key=>{
     $("#ls_"+key).addEventListener("input", e=>{
       draft.layout[key] = parseInt(e.target.value,10);
       $("#lv_"+key).textContent = e.target.value;
@@ -2096,6 +2171,10 @@ function renderSettingsPanel(el){
     draft.receiptHeader = $("#stHeader").value;
     draft.receiptFooter = $("#stFooter").value.trim() || "Thank you!";
     draft.autoPrintReceipt = $("#stAutoPrint").checked;
+    draft.roleLabels = {
+      cashier: $("#stCashierLabel").value.trim() || "Cashier",
+      admin: $("#stAdminLabel").value.trim() || "Admin"
+    };
     state.db.meta = { ...state.db.meta, ...draft };
     applyTheme();
     await pushToDrive();
@@ -2125,7 +2204,7 @@ function renderDeveloperView(el){
 
   const tabs = document.createElement("div");
   tabs.className = "tabs";
-  [["products","Menu buttons"],["categories","Categories"],["coupons","Coupons"],["settings","Settings"],["team","Cashiers & admins"],["live","Live sales"],["reports","Day reports"]].forEach(([key,label])=>{
+  [["products","Menu buttons"],["categories","Categories"],["coupons","Coupons"],["settings","Settings"],["team",`${roleLabel('cashier')}s & ${roleLabel('admin')}s`],["live","Live sales"],["reports","Day reports"]].forEach(([key,label])=>{
     const t = document.createElement("div");
     t.className = "tab" + (state.devTab===key ? " active":"");
     t.textContent = label;
