@@ -220,10 +220,6 @@
   .tab{padding:10px 16px; font-size:13px; font-weight:600; color:var(--crema-dim); cursor:pointer; border-bottom:2px solid transparent;}
   .tab.active{color:var(--paper); border-bottom-color:var(--copper);}
 
-  .swatch-row{display:flex; gap:8px; flex-wrap:wrap;}
-  .swatch{width:26px;height:26px;border-radius:6px;cursor:pointer;border:2px solid transparent;}
-  .swatch.sel{border-color:var(--paper);}
-
   /* modal */
   .modal-bg{position:fixed; inset:0; background:rgba(0,0,0,.35); backdrop-filter:blur(6px); display:flex; align-items:center; justify-content:center; z-index:500; padding:20px;}
   .modal{background:var(--espresso-2); background:color-mix(in srgb, var(--espresso-2) 88%, transparent); backdrop-filter:blur(20px) saturate(1.3); border:1px solid var(--line); border-radius:12px; padding:22px; max-width:440px; width:100%; max-height:85vh; overflow-y:auto; box-shadow:var(--shadow-lg);}
@@ -271,15 +267,13 @@
   .cat-row .cname{font-weight:600; font-size:13.5px;}
   .cat-row .ccount{font-size:11px; color:var(--crema-dim);}
 
-  /* ---------- free-form layout canvas (developer) ---------- */
-  .layout-canvas{
-    position:relative; width:100%; height:var(--canvas-height); background:var(--espresso);
-    border:1px dashed var(--line); border-radius:8px; overflow:hidden; touch-action:none;
+  /* ---------- fixed N-column grid (auto-aligned, developer sets rows/cols) ---------- */
+  .product-grid.fixed-grid{
+    grid-template-columns:repeat(var(--grid-cols,6), 1fr);
+    grid-auto-rows:var(--btn-height, 100px);
+    overflow-y:auto; padding:4px; border:1px dashed var(--line); border-radius:8px;
   }
-  .layout-canvas .product-btn{
-    position:absolute; width:var(--btn-width); height:var(--btn-height); margin:0; user-select:none;
-  }
-  .layout-canvas .product-btn.dragging-free{ box-shadow:var(--shadow-lg); z-index:50; opacity:0.9; }
+  .product-grid.fixed-grid .product-btn{ aspect-ratio:auto; height:100%; }
   .free-toggle-row{display:flex; align-items:center; gap:10px; margin-bottom:14px;}
 
   /* ---------- numpad ---------- */
@@ -319,9 +313,31 @@
       background:#fff; color:#000; padding:0;
     }
   }
+
+  /* ---------- landscape-only on phones ----------
+     manifest.json's "orientation":"landscape" locks this when installed as a
+     PWA on Android, but that isn't honored on iOS or in a plain browser tab,
+     so this overlay is the reliable fallback everywhere. */
+  #rotateOverlay{display:none;}
+  @media (max-width:900px) and (orientation:portrait){
+    #app{display:none;}
+    #rotateOverlay{
+      display:flex; position:fixed; inset:0; z-index:9999;
+      background:var(--espresso); color:var(--paper);
+      flex-direction:column; align-items:center; justify-content:center;
+      text-align:center; padding:30px; gap:14px;
+    }
+    #rotateOverlay .icon{font-size:52px; animation:rotateHint 1.8s ease-in-out infinite;}
+    @keyframes rotateHint{ 0%,100%{transform:rotate(0deg);} 50%{transform:rotate(90deg);} }
+  }
 </style>
 </head>
 <body>
+<div id="rotateOverlay">
+  <div class="icon">📱</div>
+  <h2 style="font-size:18px;">Please rotate your device</h2>
+  <p style="font-size:13px; color:var(--crema-dim); max-width:280px;">Roastline POS is designed for landscape use — turn your phone sideways to continue.</p>
+</div>
 <div id="app"></div>
 
 <script>
@@ -822,6 +838,11 @@ async function init(){
   if("serviceWorker" in navigator){
     navigator.serviceWorker.register("sw.js").catch(()=>{});
   }
+  // best-effort native orientation lock (only works in fullscreen/installed
+  // contexts on some browsers) — the CSS rotate overlay is the real fallback
+  if(screen.orientation && screen.orientation.lock){
+    screen.orientation.lock("landscape").catch(()=>{});
+  }
   if(CONFIG.CLIENT_ID.includes("YOUR_GOOGLE_OAUTH_CLIENT_ID")){
     state.view = "setup";
     render();
@@ -1078,7 +1099,6 @@ function renderCashierView(el){
   function buildButton(p){
     const b = document.createElement("div");
     b.className = "product-btn";
-    b.style.borderColor = p.color ? p.color+"55" : "";
     const priceLabel = (p.price===null || p.price===undefined) ? "Enter price" : money(p.price);
     b.innerHTML = `<div class="emoji">${p.emoji||"🧾"}</div><div class="pname">${p.name}</div><div class="pprice">${priceLabel}</div>`;
     b.onclick = ()=> addToCart(p);
@@ -1086,16 +1106,15 @@ function renderCashierView(el){
   }
 
   if(state.db.meta.freeLayout){
-    const canvas = document.createElement("div");
-    canvas.className = "layout-canvas";
-    sortedProducts().filter(p=>p.active!==false).forEach(p=>{
-      const b = buildButton(p);
-      const pos = p.pos || {xPct:4, yPct:4};
-      b.style.left = pos.xPct + "%";
-      b.style.top = pos.yPct + "%";
-      canvas.appendChild(b);
-    });
-    gridCol.appendChild(canvas);
+    // fixed N-column grid, auto-arranged in the developer's chosen order — no manual dragging
+    const layout = state.db.meta.layout || DEFAULT_LAYOUT;
+    const grid = document.createElement("div");
+    grid.className = "product-grid fixed-grid";
+    grid.style.setProperty("--grid-cols", layout.gridCols || 6);
+    grid.style.setProperty("--btn-height", (layout.btnHeight||100) + "px");
+    grid.style.maxHeight = (layout.canvasHeight||560) + "px";
+    sortedProducts().filter(p=>p.active!==false).forEach(p=> grid.appendChild(buildButton(p)));
+    gridCol.appendChild(grid);
   } else {
     categoriesSorted().forEach(cat=>{
       const prods = sortedProducts().filter(p=>p.categoryId===cat.id && p.active!==false);
@@ -1587,139 +1606,15 @@ function exportMonthlyExcel(monthValue){
 function renderMenuList(el, editable){
   const freeLayout = !!state.db.meta.freeLayout;
   const layout = state.db.meta.layout || DEFAULT_LAYOUT;
-  el.innerHTML = `<div class="card"><h3 style="margin-bottom:6px; font-size:15px;">Menu (${editable?"editable":"view only"})</h3>
-    ${editable ? `
-      <div class="free-toggle-row">
-        <label style="display:flex; align-items:center; gap:8px; margin:0;"><input type="checkbox" id="freeLayoutToggle" style="width:auto;" ${freeLayout?"checked":""}/> Free-form layout (drag buttons anywhere on the cashier screen)</label>
-      </div>
-      <div class="drag-hint">${freeLayout ? "Drag any button to any spot on the canvas below — cashiers see the exact same layout." : "Drag a button to reorder it — cashiers see the new order right away."}</div>
-      ${freeLayout ? `
-        <div class="settings-section" style="margin:14px 0;">
-          <h4>Auto-size by grid</h4>
-          <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Set how many buttons should fit across and down the canvas — button width and height are calculated automatically to fill it evenly.</p>
-          <div class="inline-row" style="margin-bottom:14px;">
-            <div class="field"><label>Columns</label><input type="number" id="gridCols" min="2" max="14" value="${layout.gridCols||6}" /></div>
-            <div class="field"><label>Rows</label><input type="number" id="gridRows" min="1" max="10" value="${layout.gridRows||4}" /></div>
-            <button class="btn btn-primary" id="applyGridBtn">Apply</button>
-          </div>
-          <h4>Or set sizes manually</h4>
-          <div class="inline-row">
-            <div class="field"><label>Canvas height: <span id="lv_mCanvasHeight">${layout.canvasHeight}</span>px</label><input type="range" id="ls_mCanvasHeight" min="360" max="900" value="${layout.canvasHeight}" /></div>
-            <div class="field"><label>Button width: <span id="lv_mBtnWidth">${layout.btnWidth}</span>px</label><input type="range" id="ls_mBtnWidth" min="70" max="180" value="${layout.btnWidth}" /></div>
-            <div class="field"><label>Button height: <span id="lv_mBtnHeight">${layout.btnHeight}</span>px</label><input type="range" id="ls_mBtnHeight" min="60" max="160" value="${layout.btnHeight}" /></div>
-          </div>
-        </div>
-      ` : ""}
-    ` : ""}
-    <div id="menuGrid" class="${freeLayout ? 'layout-canvas' : 'product-grid'}"></div></div>`;
-
-  if(editable){
-    $("#freeLayoutToggle").onchange = async e=>{
-      state.db.meta.freeLayout = e.target.checked;
-      await pushToDrive();
-      render();
-    };
-    if(freeLayout){
-      const sizeMap = { mCanvasHeight:"canvasHeight", mBtnWidth:"btnWidth", mBtnHeight:"btnHeight" };
-      Object.keys(sizeMap).forEach(domKey=>{
-        const metaKey = sizeMap[domKey];
-        $("#ls_"+domKey).addEventListener("input", e=>{
-          const val = parseInt(e.target.value,10);
-          $("#lv_"+domKey).textContent = val;
-          state.db.meta.layout[metaKey] = val;
-          applyLayout();
-        });
-        $("#ls_"+domKey).addEventListener("change", async ()=>{ await pushToDrive(); });
-      });
-      $("#applyGridBtn").onclick = async ()=>{
-        const cols = Math.max(2, parseInt($("#gridCols").value,10) || 6);
-        const rows = Math.max(1, parseInt($("#gridRows").value,10) || 4);
-        const canvas = $("#menuGrid");
-        const rect = canvas.getBoundingClientRect();
-        const gap = 10; // matches the canvas padding/gap used when placing buttons
-        const btnWidth = Math.max(60, Math.floor((rect.width - gap*(cols-1)) / cols));
-        const btnHeight = Math.max(50, Math.floor((rect.height - gap*(rows-1)) / rows));
-        state.db.meta.layout.gridCols = cols;
-        state.db.meta.layout.gridRows = rows;
-        state.db.meta.layout.btnWidth = btnWidth;
-        state.db.meta.layout.btnHeight = btnHeight;
-        applyLayout();
-        await pushToDrive();
-        toast(`Buttons sized to fit a ${cols}×${rows} grid`, "ok");
-        render();
-      };
-    }
-  }
-
-  const grid = $("#menuGrid");
-  const products = sortedProducts();
-
   function priceLabel(p){ return (p.price===null || p.price===undefined) ? "Open price" : money(p.price); }
 
-  if(freeLayout){
-    products.forEach(p=>{
-      const c = document.createElement("div");
-      c.className = "product-btn";
-      c.style.opacity = p.active===false ? "0.4" : "1";
-      const pos = p.pos || {xPct:4, yPct:4};
-      c.style.left = pos.xPct + "%";
-      c.style.top = pos.yPct + "%";
-      c.innerHTML = `<div class="emoji">${p.emoji||"🧾"}</div><div class="pname">${p.name}</div><div class="pprice">${priceLabel(p)}</div>`;
-      if(editable){
-        let dragging=false, moved=false, startX=0, startY=0, rect=null;
-        c.addEventListener("pointerdown", e=>{
-          dragging = true; moved = false;
-          rect = grid.getBoundingClientRect();
-          startX = e.clientX; startY = e.clientY;
-          c.setPointerCapture(e.pointerId);
-          c.classList.add("dragging-free");
-        });
-        c.addEventListener("pointermove", e=>{
-          if(!dragging) return;
-          if(Math.abs(e.clientX-startX) > 4 || Math.abs(e.clientY-startY) > 4) moved = true;
-          if(!moved) return;
-          let xPct = ((e.clientX - rect.left) / rect.width) * 100;
-          let yPct = ((e.clientY - rect.top) / rect.height) * 100;
-          xPct = Math.max(0, Math.min(88, xPct));
-          yPct = Math.max(0, Math.min(94, yPct));
-          c.style.left = xPct + "%";
-          c.style.top = yPct + "%";
-        });
-        c.addEventListener("pointerup", async e=>{
-          dragging = false;
-          c.classList.remove("dragging-free");
-          if(moved){
-            const xPct = parseFloat(c.style.left);
-            const yPct = parseFloat(c.style.top);
-            p.pos = { xPct, yPct };
-            p.updatedAt = nowIso();
-            await pushToDrive();
-          } else {
-            openProductModal(p);
-          }
-        });
-      }
-      grid.appendChild(c);
-    });
-    if(editable){
-      const addBtn = document.createElement("div");
-      addBtn.className = "product-btn";
-      addBtn.style.left = "2%"; addBtn.style.top = "2%"; addBtn.style.position="absolute";
-      addBtn.style.cursor = "pointer";
-      addBtn.innerHTML = `<div class="emoji">➕</div><div class="pname">Add button</div>`;
-      addBtn.onclick = ()=>openProductModal(null);
-      grid.appendChild(addBtn);
-    }
-    return;
-  }
-
-  products.forEach(p=>{
+  function makeButton(p){
     const c = document.createElement("div");
     c.className = "product-btn" + (editable ? " draggable" : "");
     c.style.cursor = editable ? "grab" : "default";
     c.style.opacity = p.active===false ? "0.4" : "1";
     c.dataset.pid = p.id;
-    c.innerHTML = `<div class="emoji">${p.emoji||"🧾"}</div><div class="pname">${p.name}</div><div class="pprice">${priceLabel(p)}</div><div class="pcat">${categoryName(p.categoryId)}</div>`;
+    c.innerHTML = `<div class="emoji">${p.emoji||"🧾"}</div><div class="pname">${p.name}</div><div class="pprice">${priceLabel(p)}</div>${freeLayout?"":`<div class="pcat">${categoryName(p.categoryId)}</div>`}`;
     if(editable){
       c.onclick = ()=>openProductModal(p);
       c.draggable = true;
@@ -1743,22 +1638,90 @@ function renderMenuList(el, editable){
         render();
       });
     }
-    grid.appendChild(c);
-  });
+    return c;
+  }
+
+  el.innerHTML = `<div class="card">
+    <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:10px; margin-bottom:6px;">
+      <h3 style="font-size:15px;">Menu (${editable?"editable":"view only"}) — looks just like the cashier screen</h3>
+      ${editable ? `<button class="btn btn-primary" id="addMenuBtn">➕ Add button</button>` : ""}
+    </div>
+    ${editable ? `
+      <div class="free-toggle-row">
+        <label style="display:flex; align-items:center; gap:8px; margin:0;"><input type="checkbox" id="freeLayoutToggle" style="width:auto;" ${freeLayout?"checked":""}/> Fixed grid layout (set an exact number of columns &amp; rows instead of grouping by category)</label>
+      </div>
+      ${freeLayout ? `
+        <div class="settings-section" style="margin:14px 0;">
+          <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Set how many buttons should fit across and down — they're arranged and sized automatically to fill the space evenly, in the order below.</p>
+          <div class="inline-row">
+            <div class="field"><label>Columns</label><input type="number" id="gridCols" min="2" max="14" value="${layout.gridCols||6}" /></div>
+            <div class="field"><label>Rows</label><input type="number" id="gridRows" min="1" max="10" value="${layout.gridRows||4}" /></div>
+            <button class="btn btn-primary" id="applyGridBtn">Apply</button>
+          </div>
+        </div>
+      ` : `<div class="drag-hint">Drag a button to reorder it — cashiers see the new order right away.</div>`}
+    ` : ""}
+    <div id="menuGrid"></div>
+  </div>`;
+
+  if($("#addMenuBtn")) $("#addMenuBtn").onclick = ()=>openProductModal(null);
+
   if(editable){
-    const addBtn = document.createElement("div");
-    addBtn.className = "product-btn";
-    addBtn.style.cursor = "pointer";
-    addBtn.innerHTML = `<div class="emoji">➕</div><div class="pname">Add button</div>`;
-    addBtn.onclick = ()=>openProductModal(null);
-    grid.appendChild(addBtn);
+    $("#freeLayoutToggle").onchange = async e=>{
+      state.db.meta.freeLayout = e.target.checked;
+      await pushToDrive();
+      render();
+    };
+    if(freeLayout){
+      $("#applyGridBtn").onclick = async ()=>{
+        const cols = Math.max(2, parseInt($("#gridCols").value,10) || 6);
+        const rows = Math.max(1, parseInt($("#gridRows").value,10) || 4);
+        const btnHeight = 100;
+        state.db.meta.layout.gridCols = cols;
+        state.db.meta.layout.gridRows = rows;
+        state.db.meta.layout.btnHeight = btnHeight;
+        state.db.meta.layout.canvasHeight = rows * (btnHeight + 10) + 10;
+        applyLayout();
+        await pushToDrive();
+        toast(`Buttons auto-aligned to a ${cols}×${rows} grid`, "ok");
+        render();
+      };
+    }
+  }
+
+  const host = $("#menuGrid");
+  const products = sortedProducts();
+
+  if(freeLayout){
+    const grid = document.createElement("div");
+    grid.className = "product-grid fixed-grid";
+    grid.style.setProperty("--grid-cols", layout.gridCols || 6);
+    grid.style.setProperty("--btn-height", (layout.btnHeight||100) + "px");
+    grid.style.maxHeight = (layout.canvasHeight||560) + "px";
+    products.forEach(p=> grid.appendChild(makeButton(p)));
+    host.appendChild(grid);
+  } else {
+    categoriesSorted().forEach(cat=>{
+      const prods = products.filter(p=>p.categoryId===cat.id);
+      if(prods.length===0 && !editable) return;
+      const section = document.createElement("div");
+      section.style.marginBottom = "18px";
+      section.innerHTML = `<h3 style="font-size:14px; margin-bottom:10px; color:var(--crema-dim);">${cat.name}</h3>`;
+      const grid = document.createElement("div");
+      grid.className = "product-grid";
+      prods.forEach(p=> grid.appendChild(makeButton(p)));
+      if(prods.length===0) grid.innerHTML = `<div style="font-size:12px; color:var(--crema-dim);">No items in this category yet.</div>`;
+      section.appendChild(grid);
+      host.appendChild(section);
+    });
+  }
+  if(products.length===0){
+    host.innerHTML = `<div class="empty-state"><div class="big">🧾</div><p>No menu buttons yet — click "Add button" above to create your first one.</p></div>`;
   }
 }
 
 function openProductModal(product){
   const isNew = !product;
-  const colors = ["#b5652f","#d98a52","#c7a877","#8a5a34","#3d3128","#7a9a6c","#b5453a","#4d6a8f"];
-  let selColor = product ? product.color : colors[0];
   const cats = categoriesSorted();
   const bg = document.createElement("div");
   bg.className = "modal-bg";
@@ -1769,7 +1732,6 @@ function openProductModal(product){
       <div class="field"><label>Price (leave blank to let the cashier enter it via the numpad)</label><input id="pfPrice" type="number" step="0.01" value="${product && product.price!==null && product.price!==undefined ? product.price : ""}" placeholder="Open price" /></div>
       <div class="field"><label>Category</label><select id="pfCat">${cats.map(c=>`<option value="${c.id}" ${product&&product.categoryId===c.id?"selected":""}>${c.name}</option>`).join("")}</select></div>
       <div class="field"><label>Emoji</label><input id="pfEmoji" value="${product?product.emoji:"☕"}" maxlength="4" /></div>
-      <div class="field"><label>Color</label><div class="swatch-row" id="swatchRow"></div></div>
       <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="pfDrink" style="width:auto;" ${!product || product.isDrink!==false ? "checked":""}/> Eligible for drink coupons</label></div>
       ${!isNew ? `<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="pfActive" style="width:auto;" ${product.active!==false?"checked":""}/> Button visible to cashiers</label></div>` : ""}
       <div class="modal-actions">
@@ -1779,14 +1741,6 @@ function openProductModal(product){
       </div>
     </div>`;
   document.body.appendChild(bg);
-  const row = $("#swatchRow");
-  colors.forEach(c=>{
-    const s = document.createElement("div");
-    s.className = "swatch" + (c===selColor ? " sel":"");
-    s.style.background = c;
-    s.onclick = ()=>{ selColor = c; row.querySelectorAll(".swatch").forEach(x=>x.classList.remove("sel")); s.classList.add("sel"); };
-    row.appendChild(s);
-  });
   $("#cancelProd").onclick = ()=>bg.remove();
   $("#saveProd").onclick = async ()=>{
     const name = $("#pfName").value.trim();
@@ -1799,14 +1753,13 @@ function openProductModal(product){
       const maxOrder = state.db.products.reduce((m,p)=>Math.max(m, p.order??0), -1);
       state.db.products.push({
         id: uid(), name, price, categoryId,
-        emoji: $("#pfEmoji").value.trim()||"🧾", color: selColor, isDrink, active:true, order: maxOrder+1,
-        pos: { xPct: 4 + ((maxOrder+1)%6)*16, yPct: 6 + Math.floor((maxOrder+1)/6)*22 },
+        emoji: $("#pfEmoji").value.trim()||"🧾", isDrink, active:true, order: maxOrder+1,
         updatedAt: nowIso()
       });
     } else {
       Object.assign(product, {
         name, price, categoryId,
-        emoji: $("#pfEmoji").value.trim()||"🧾", color: selColor, isDrink,
+        emoji: $("#pfEmoji").value.trim()||"🧾", isDrink,
         active: $("#pfActive").checked, updatedAt: nowIso()
       });
     }
