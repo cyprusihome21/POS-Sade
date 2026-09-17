@@ -550,6 +550,26 @@ function applyTheme(){
   applyDerivedNeutrals(t.bg || DEFAULT_THEME.bg);
   applyAccentText(t.accent || DEFAULT_THEME.accent);
   applyLayout();
+  applyBrandingToTab();
+}
+/* keeps the browser tab's title and favicon in sync with the developer's
+   business name / logo settings, so there's nothing to hand-edit in code */
+function applyBrandingToTab(){
+  if(!state.db || !state.db.meta) return;
+  document.title = state.db.meta.businessName || "Roastline POS";
+  let iconLink = document.querySelector('link[rel="icon"]');
+  if(!iconLink){
+    iconLink = document.createElement("link");
+    iconLink.rel = "icon";
+    document.head.appendChild(iconLink);
+  }
+  if(state.db.meta.logoDataUrl){
+    iconLink.type = "";
+    iconLink.href = state.db.meta.logoDataUrl;
+  } else {
+    iconLink.type = "image/svg+xml";
+    iconLink.href = "icon.svg";
+  }
 }
 function applyThemeDraft(draft){
   const root = document.documentElement.style;
@@ -1105,30 +1125,24 @@ function renderCashierView(el){
     return b;
   }
 
-  if(state.db.meta.freeLayout){
-    // fixed N-column grid, auto-arranged in the developer's chosen order — no manual dragging
-    const layout = state.db.meta.layout || DEFAULT_LAYOUT;
+  const freeLayout = !!state.db.meta.freeLayout;
+  const layout = state.db.meta.layout || DEFAULT_LAYOUT;
+  categoriesSorted().forEach(cat=>{
+    const prods = sortedProducts().filter(p=>p.categoryId===cat.id && p.active!==false);
+    if(prods.length===0) return;
+    const section = document.createElement("div");
+    section.style.marginBottom = "18px";
+    section.innerHTML = `<h3 style="font-size:14px; margin-bottom:10px; color:var(--crema-dim);">${cat.name}</h3>`;
     const grid = document.createElement("div");
-    grid.className = "product-grid fixed-grid";
-    grid.style.setProperty("--grid-cols", layout.gridCols || 6);
-    grid.style.setProperty("--btn-height", (layout.btnHeight||100) + "px");
-    grid.style.maxHeight = (layout.canvasHeight||560) + "px";
-    sortedProducts().filter(p=>p.active!==false).forEach(p=> grid.appendChild(buildButton(p)));
-    gridCol.appendChild(grid);
-  } else {
-    categoriesSorted().forEach(cat=>{
-      const prods = sortedProducts().filter(p=>p.categoryId===cat.id && p.active!==false);
-      if(prods.length===0) return;
-      const section = document.createElement("div");
-      section.style.marginBottom = "18px";
-      section.innerHTML = `<h3 style="font-size:14px; margin-bottom:10px; color:var(--crema-dim);">${cat.name}</h3>`;
-      const grid = document.createElement("div");
-      grid.className = "product-grid";
-      prods.forEach(p=> grid.appendChild(buildButton(p)));
-      section.appendChild(grid);
-      gridCol.appendChild(section);
-    });
-  }
+    grid.className = "product-grid" + (freeLayout ? " fixed-grid" : "");
+    if(freeLayout){
+      grid.style.setProperty("--grid-cols", layout.gridCols || 6);
+      grid.style.setProperty("--btn-height", (layout.btnHeight||100) + "px");
+    }
+    prods.forEach(p=> grid.appendChild(buildButton(p)));
+    section.appendChild(grid);
+    gridCol.appendChild(section);
+  });
 
   if(state.db.products.length===0){
     gridCol.innerHTML = `<div class="empty-state"><div class="big">🧾</div><p>No products yet. Ask the developer to add menu buttons.</p></div>` + gridCol.innerHTML;
@@ -1692,29 +1706,23 @@ function renderMenuList(el, editable){
   const host = $("#menuGrid");
   const products = sortedProducts();
 
-  if(freeLayout){
+  categoriesSorted().forEach(cat=>{
+    const prods = products.filter(p=>p.categoryId===cat.id);
+    if(prods.length===0 && !editable) return;
+    const section = document.createElement("div");
+    section.style.marginBottom = "18px";
+    section.innerHTML = `<h3 style="font-size:14px; margin-bottom:10px; color:var(--crema-dim);">${cat.name}</h3>`;
     const grid = document.createElement("div");
-    grid.className = "product-grid fixed-grid";
-    grid.style.setProperty("--grid-cols", layout.gridCols || 6);
-    grid.style.setProperty("--btn-height", (layout.btnHeight||100) + "px");
-    grid.style.maxHeight = (layout.canvasHeight||560) + "px";
-    products.forEach(p=> grid.appendChild(makeButton(p)));
-    host.appendChild(grid);
-  } else {
-    categoriesSorted().forEach(cat=>{
-      const prods = products.filter(p=>p.categoryId===cat.id);
-      if(prods.length===0 && !editable) return;
-      const section = document.createElement("div");
-      section.style.marginBottom = "18px";
-      section.innerHTML = `<h3 style="font-size:14px; margin-bottom:10px; color:var(--crema-dim);">${cat.name}</h3>`;
-      const grid = document.createElement("div");
-      grid.className = "product-grid";
-      prods.forEach(p=> grid.appendChild(makeButton(p)));
-      if(prods.length===0) grid.innerHTML = `<div style="font-size:12px; color:var(--crema-dim);">No items in this category yet.</div>`;
-      section.appendChild(grid);
-      host.appendChild(section);
-    });
-  }
+    grid.className = "product-grid" + (freeLayout ? " fixed-grid" : "");
+    if(freeLayout){
+      grid.style.setProperty("--grid-cols", layout.gridCols || 6);
+      grid.style.setProperty("--btn-height", (layout.btnHeight||100) + "px");
+    }
+    prods.forEach(p=> grid.appendChild(makeButton(p)));
+    if(prods.length===0) grid.innerHTML = `<div style="font-size:12px; color:var(--crema-dim);">No items in this category yet.</div>`;
+    section.appendChild(grid);
+    host.appendChild(section);
+  });
   if(products.length===0){
     host.innerHTML = `<div class="empty-state"><div class="big">🧾</div><p>No menu buttons yet — click "Add button" above to create your first one.</p></div>`;
   }
