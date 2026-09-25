@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Roastline POS</title>
+<title>Sade POS</title>
 <meta name="theme-color" content="#f3f2f1">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
@@ -336,13 +336,13 @@
 <div id="rotateOverlay">
   <div class="icon">📱</div>
   <h2 style="font-size:18px;">Please rotate your device</h2>
-  <p style="font-size:13px; color:var(--crema-dim); max-width:280px;">Roastline POS is designed for landscape use — turn your phone sideways to continue.</p>
+  <p style="font-size:13px; color:var(--crema-dim); max-width:280px;">Sade POS is designed for landscape use — turn your phone sideways to continue.</p>
 </div>
 <div id="app"></div>
 
 <script>
 /* =========================================================================
-   ROASTLINE POS — single-file PWA point of sale backed by Google Drive.
+   SADE POS — single-file PWA point of sale backed by Google Drive.
    Roles: developer (build/manage, hidden from the team list),
           admin (view-only), cashier (sell).
    ========================================================================= */
@@ -352,7 +352,7 @@
    until CLIENT_ID is set (see the in-app Setup screen for exact steps). */
 const CONFIG = {
   CLIENT_ID: "123572472682-v17hrcl71fg8t477rb4s0rk6lf6h4ooj.apps.googleusercontent.com",
-  DB_FILENAME: "roastline_pos_db.json",
+  DB_FILENAME: "sade_pos_db.json",
   SCOPES: "https://www.googleapis.com/auth/drive",
   SYNC_INTERVAL_MS: 20000
 };
@@ -435,7 +435,7 @@ function defaultDb(){
   const catCoffee = uid(), catBakery = uid();
   return {
     meta: {
-      appActive: true, businessName: "Roastline Coffee", logoDataUrl: null,
+      appActive: true, businessName: "Sade Coffee", logoDataUrl: null,
       currencySymbol: "$", currencyCode: "USD", freeLayout: false,
       layout: { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, gridCols: 6, gridRows: 4 },
       roleLabels: { admin: "Admin", cashier: "Cashier" },
@@ -465,7 +465,7 @@ function defaultDb(){
 function migrateDb(db){
   db.meta = db.meta || {};
   if(db.meta.appActive===undefined) db.meta.appActive = true;
-  if(!db.meta.businessName) db.meta.businessName = "Roastline Coffee";
+  if(!db.meta.businessName) db.meta.businessName = "Sade Coffee";
   if(!db.meta.currencySymbol) db.meta.currencySymbol = "$";
   if(!db.meta.currencyCode) db.meta.currencyCode = "USD";
   if(db.meta.freeLayout===undefined) db.meta.freeLayout = false;
@@ -556,7 +556,7 @@ function applyTheme(){
    business name / logo settings, so there's nothing to hand-edit in code */
 function applyBrandingToTab(){
   if(!state.db || !state.db.meta) return;
-  document.title = state.db.meta.businessName || "Roastline POS";
+  document.title = state.db.meta.businessName || "Sade POS";
   let iconLink = document.querySelector('link[rel="icon"]');
   if(!iconLink){
     iconLink = document.createElement("link");
@@ -625,7 +625,7 @@ function receiptWrap(innerRowsHtml){
   const m = state.db.meta;
   return `
     ${m.logoDataUrl ? `<div style="text-align:center;margin-bottom:6px;"><img src="${m.logoDataUrl}" style="max-height:50px;max-width:150px;"/></div>` : ""}
-    <div style="text-align:center;font-weight:700;">${m.businessName||"Roastline Coffee"}</div>
+    <div style="text-align:center;font-weight:700;">${m.businessName||"Sade Coffee"}</div>
     ${m.receiptHeader ? `<div style="text-align:center;font-size:11px;white-space:pre-line;margin-top:2px;">${m.receiptHeader}</div>` : ""}
     <hr/>
     ${innerRowsHtml}
@@ -638,7 +638,7 @@ function receiptWrap(innerRowsHtml){
    its own real address (GitHub Pages, etc) — not inside Claude's in-chat
    preview. It's a safety net so a dropped connection mid-shift doesn't
    lose sales; it is not a substitute for the Drive database. */
-function cacheKey(){ return "roastline_cache_" + CONFIG.DB_FILENAME; }
+function cacheKey(){ return "sade_cache_" + CONFIG.DB_FILENAME; }
 function saveLocalCache(){
   try{ localStorage.setItem(cacheKey(), JSON.stringify({ dbFileId: state.dbFileId, db: state.db })); }catch(e){}
 }
@@ -684,7 +684,7 @@ async function driveFindDbFile(){
 }
 
 async function driveCreateDbFile(dbObj){
-  const boundary = "roastline-boundary";
+  const boundary = "sade-boundary";
   const metadata = { name: CONFIG.DB_FILENAME, mimeType: "application/json" };
   const body =
     `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n` +
@@ -847,7 +847,7 @@ window.addEventListener("offline", ()=>{
 
 async function tryLogin(username, password){
   const hash = await sha256(password);
-  const user = state.db.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.active !== false);
+  const user = activeUsers().find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.active !== false);
   if(!user || user.passwordHash !== hash) return null;
   return user;
 }
@@ -948,7 +948,7 @@ function renderSetupScreen(el){
   wrap.className = "center-screen";
   wrap.innerHTML = `
     <div class="panel" style="max-width:520px;">
-      <div class="brand"><div class="mark">R</div><div><div class="name">Roastline POS</div><div class="sub">SETUP REQUIRED</div></div></div>
+      <div class="brand"><div class="mark">S</div><div><div class="name">Sade POS</div><div class="sub">SETUP REQUIRED</div></div></div>
       <div class="card">
         <h3 style="margin-bottom:12px;">Connect this app to Google Drive</h3>
         <p style="font-size:13px; color:var(--paper-dim); line-height:1.6; margin-bottom:14px;">
@@ -974,7 +974,7 @@ function renderConnectScreen(el){
   wrap.className = "center-screen";
   wrap.innerHTML = `
     <div class="panel">
-      <div class="brand"><div class="mark">R</div><div><div class="name">Roastline POS</div><div class="sub">COFFEE SHOP SYSTEM</div></div></div>
+      <div class="brand"><div class="mark">S</div><div><div class="name">Sade POS</div><div class="sub">COFFEE SHOP SYSTEM</div></div></div>
       <div class="card">
         <h3 style="margin-bottom:8px;">Connect to Google Drive</h3>
         <p style="font-size:13px; color:var(--paper-dim); margin-bottom:18px; line-height:1.5;">
@@ -999,13 +999,13 @@ function renderLoginScreen(el){
   wrap.innerHTML = `
     <div class="panel">
       <div class="brand">
-        <div class="mark">${m.logoDataUrl ? `<img src="${m.logoDataUrl}"/>` : "R"}</div>
-        <div><div class="name">${m.businessName || "Roastline POS"}</div><div class="sub">SIGN IN</div></div>
+        <div class="mark">${m.logoDataUrl ? `<img src="${m.logoDataUrl}"/>` : "S"}</div>
+        <div><div class="name">${m.businessName || "Sade POS"}</div><div class="sub">SIGN IN</div></div>
       </div>
       ${!m.appActive ? `<div class="banner warn">System is currently deactivated by the developer. Cashiers cannot sell until it's reactivated.</div>` : ""}
       <div class="card">
-        <div class="field"><label>Username</label><input id="lu" name="roastline_user_${Date.now()}" autocomplete="off" spellcheck="false" /></div>
-        <div class="field"><label>Password</label><input id="lp" type="password" name="roastline_pass_${Date.now()}" autocomplete="new-password" /></div>
+        <div class="field"><label>Username</label><input id="lu" name="sade_user_${Date.now()}" autocomplete="off" spellcheck="false" /></div>
+        <div class="field"><label>Password</label><input id="lp" type="password" name="sade_pass_${Date.now()}" autocomplete="new-password" /></div>
         <div id="loginErr" style="color:var(--err); font-size:12.5px; min-height:16px; margin-bottom:8px;"></div>
         <button class="btn btn-primary btn-block" id="loginBtn">Sign in</button>
       </div>
@@ -1038,8 +1038,8 @@ function renderShell(el, contentFn){
   shell.innerHTML = `
     <div class="topbar">
       <div class="left">
-        <div class="mark" style="width:30px;height:30px;border-radius:7px;background:var(--copper);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent-text);font-size:14px; overflow:hidden;">${m.logoDataUrl ? `<img src="${m.logoDataUrl}" style="width:100%;height:100%;object-fit:cover;"/>` : "R"}</div>
-        <div class="who">${m.businessName||"Roastline POS"} — <b>${state.currentUser.name || state.currentUser.username}</b></div>
+        <div class="mark" style="width:30px;height:30px;border-radius:7px;background:var(--copper);display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--accent-text);font-size:14px; overflow:hidden;">${m.logoDataUrl ? `<img src="${m.logoDataUrl}" style="width:100%;height:100%;object-fit:cover;"/>` : "S"}</div>
+        <div class="who">${m.businessName||"Sade POS"} — <b>${state.currentUser.name || state.currentUser.username}</b></div>
         <span class="role-tag">${roleLabelText}</span>
         ${syncPillHtml()}
       </div>
@@ -1078,7 +1078,7 @@ function openMyAccountModal(){
   document.body.appendChild(bg);
   $("#maCancel").onclick = ()=>bg.remove();
   $("#maSave").onclick = async ()=>{
-    const user = state.db.users.find(u=>u.id===state.currentUser.id);
+    const user = activeUsers().find(u=>u.id===state.currentUser.id);
     if(!user){ bg.remove(); return; }
     const name = $("#maName").value.trim();
     const pass = $("#maPass").value;
@@ -1092,15 +1092,26 @@ function openMyAccountModal(){
   };
 }
 
-/* ================= CATEGORY / PRODUCT HELPERS ================= */
+/* ================= CATEGORY / PRODUCT / USER / COUPON HELPERS =================
+   Deleting a record can't just remove it from the local array — a device that
+   hasn't synced the deletion yet would "resurrect" it on its next merge, since
+   the merge logic only knows how to combine records, not represent an absence.
+   So a delete instead soft-deletes (deleted:true + updatedAt), and every read
+   site filters those out — the tombstone itself still syncs like any edit. */
 function categoriesSorted(){
-  return (state.db.categories||[]).slice().sort((a,b)=>(a.order??0)-(b.order??0));
+  return (state.db.categories||[]).filter(c=>!c.deleted).slice().sort((a,b)=>(a.order??0)-(b.order??0));
 }
 function sortedProducts(){
-  return state.db.products.slice().sort((a,b)=> (a.order??0) - (b.order??0));
+  return state.db.products.filter(p=>!p.deleted).slice().sort((a,b)=> (a.order??0) - (b.order??0));
+}
+function activeUsers(){
+  return (state.db.users||[]).filter(u=>!u.deleted);
+}
+function activeCoupons(){
+  return (state.db.coupons||[]).filter(c=>!c.deleted);
 }
 function categoryName(catId){
-  const c = (state.db.categories||[]).find(c=>c.id===catId);
+  const c = (state.db.categories||[]).find(c=>c.id===catId && !c.deleted);
   return c ? c.name : "Other";
 }
 
@@ -1144,7 +1155,7 @@ function renderCashierView(el){
     gridCol.appendChild(section);
   });
 
-  if(state.db.products.length===0){
+  if(sortedProducts().length===0){
     gridCol.innerHTML = `<div class="empty-state"><div class="big">🧾</div><p>No products yet. Ask the developer to add menu buttons.</p></div>` + gridCol.innerHTML;
   }
 
@@ -1310,7 +1321,7 @@ function renderNumpadPanel(host){
     if(target.kind==="coupon"){
       const code = state.numpadAmount.trim();
       if(!code){ toast("Enter a code first", "err"); return; }
-      const match = (state.db.coupons||[]).find(c => c.code.toUpperCase()===code.toUpperCase() && c.active!==false);
+      const match = activeCoupons().find(c => c.code.toUpperCase()===code.toUpperCase() && c.active!==false);
       if(!match){ toast("Coupon not found or inactive", "err"); return; }
       state.appliedCoupon = { code: match.code, percent: match.percent };
       state.numpadAmount = ""; state.numpadTarget = null;
@@ -1346,7 +1357,8 @@ async function completeSale(){
   state.db.sales.push(sale);
   // coupons are single-use — discard it the moment it's actually used in a completed sale
   if(state.appliedCoupon && totals.discountAmt > 0){
-    state.db.coupons = state.db.coupons.filter(c => c.code.toUpperCase() !== state.appliedCoupon.code.toUpperCase());
+    const used = state.db.coupons.find(c => c.code.toUpperCase() === state.appliedCoupon.code.toUpperCase());
+    if(used){ used.deleted = true; used.active = false; used.updatedAt = nowIso(); }
   }
   state.cart = [];
   state.appliedCoupon = null;
@@ -1585,7 +1597,7 @@ function exportDayClosesExcel(){
   const ws = XLSX.utils.json_to_sheet(rows);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Day Closes");
-  XLSX.writeFile(wb, "roastline-day-close-reports.xlsx");
+  XLSX.writeFile(wb, "sade-day-close-reports.xlsx");
 }
 
 function exportMonthlyExcel(monthValue){
@@ -1613,7 +1625,7 @@ function exportMonthlyExcel(monthValue){
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(byDay)), "Daily Summary");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(salesRows), "All Sales");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(byProduct)), "By Product");
-  XLSX.writeFile(wb, "roastline-monthly-report-"+monthValue+".xlsx");
+  XLSX.writeFile(wb, "sade-monthly-report-"+monthValue+".xlsx");
 }
 
 /* ---- menu (flat, drag-reorderable) ---- */
@@ -1777,7 +1789,7 @@ function openProductModal(product){
   };
   if(!isNew){
     $("#delProd").onclick = async ()=>{
-      state.db.products = state.db.products.filter(p=>p.id!==product.id);
+      product.deleted = true; product.active = false; product.updatedAt = nowIso();
       await pushToDrive();
       bg.remove();
       render();
@@ -1796,7 +1808,7 @@ function renderCategoriesList(el, editable){
   </div>`;
   const list = $("#catList");
   cats.forEach(cat=>{
-    const count = state.db.products.filter(p=>p.categoryId===cat.id).length;
+    const count = sortedProducts().filter(p=>p.categoryId===cat.id).length;
     const row = document.createElement("div");
     row.className = "cat-row";
     row.style.cursor = editable ? "grab" : "default";
@@ -1862,11 +1874,11 @@ function openCategoryModal(cat){
   };
   if(!isNew){
     $("#delCat").onclick = async ()=>{
-      if(state.db.categories.length<=1){ toast("You need at least one category","err"); return; }
-      const remaining = state.db.categories.filter(c=>c.id!==cat.id);
+      const remaining = categoriesSorted().filter(c=>c.id!==cat.id);
+      if(remaining.length===0){ toast("You need at least one category","err"); return; }
       const fallback = remaining[0];
-      state.db.products.forEach(p=>{ if(p.categoryId===cat.id) p.categoryId = fallback.id; });
-      state.db.categories = remaining;
+      state.db.products.forEach(p=>{ if(p.categoryId===cat.id) { p.categoryId = fallback.id; p.updatedAt = nowIso(); } });
+      cat.deleted = true; cat.updatedAt = nowIso();
       await pushToDrive();
       bg.remove();
       render();
@@ -1876,7 +1888,7 @@ function openCategoryModal(cat){
 
 /* ================= COUPONS ================= */
 function renderCouponsList(el, editable){
-  const coupons = (state.db.coupons||[]).slice().sort((a,b)=> new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  const coupons = activeCoupons().slice().sort((a,b)=> new Date(b.createdAt||0)-new Date(a.createdAt||0));
   el.innerHTML = `<div class="card"><h3 style="margin-bottom:6px; font-size:15px;">Coupons (${editable?"editable":"view only"})</h3>
     <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">Coupons only discount drink items, one drink per sale (the most expensive eligible drink) — and each code works once. The moment a coupon is used in a completed sale, it's removed automatically.</p>
     <table><thead><tr><th>Code</th><th>Discount</th><th>Status</th>${editable?"<th></th>":""}</tr></thead>
@@ -1914,7 +1926,7 @@ function renderCouponsList(el, editable){
       const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
       let added = 0, skipped = 0;
       if(!state.db.coupons) state.db.coupons = [];
-      const existingCodes = new Set(state.db.coupons.map(c=>c.code.toUpperCase()));
+      const existingCodes = new Set(activeCoupons().map(c=>c.code.toUpperCase()));
       lines.forEach(line=>{
         const parts = line.split(",").map(p=>p.trim());
         const code = (parts[0]||"").toUpperCase();
@@ -1957,7 +1969,7 @@ function openCouponModal(coupon){
     if(!code || isNaN(percent) || percent<=0 || percent>100){ toast("Enter a code and a percent between 1-100","err"); return; }
     if(!state.db.coupons) state.db.coupons = [];
     if(isNew){
-      if(state.db.coupons.some(c=>c.code.toUpperCase()===code)){ toast("That code already exists","err"); return; }
+      if(activeCoupons().some(c=>c.code.toUpperCase()===code)){ toast("That code already exists","err"); return; }
       state.db.coupons.push({ id: uid(), code, percent, active:true, createdAt: nowIso(), updatedAt: nowIso() });
     } else {
       coupon.code = code; coupon.percent = percent;
@@ -1970,7 +1982,7 @@ function openCouponModal(coupon){
   };
   if(!isNew){
     $("#delCoupon").onclick = async ()=>{
-      state.db.coupons = state.db.coupons.filter(c=>c.id!==coupon.id);
+      coupon.deleted = true; coupon.active = false; coupon.updatedAt = nowIso();
       await pushToDrive();
       bg.remove();
       render();
@@ -1980,7 +1992,7 @@ function openCouponModal(coupon){
 
 /* ================= TEAM (developer accounts are never listed here) ================= */
 function renderTeamList(el, editable){
-  const visibleUsers = state.db.users.filter(u=>u.role!=="developer");
+  const visibleUsers = activeUsers().filter(u=>u.role!=="developer");
   el.innerHTML = `<div class="card"><h3 style="margin-bottom:12px; font-size:15px;">Team (${editable?"editable":"view only"})</h3>
     <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th>${editable?"<th></th>":""}</tr></thead>
     <tbody id="teamBody"></tbody></table>
@@ -2000,7 +2012,7 @@ function renderTeamList(el, editable){
   if(editable){
     $("#addUserBtn").onclick = ()=>openUserModal(null);
     body.querySelectorAll("a[data-uid]").forEach(a=>{
-      a.onclick = ()=>openUserModal(state.db.users.find(u=>u.id===a.dataset.uid));
+      a.onclick = ()=>openUserModal(activeUsers().find(u=>u.id===a.dataset.uid));
     });
   }
 }
@@ -2037,7 +2049,7 @@ function openUserModal(user){
     const pass = $("#ufPass").value;
     if(!name || !username){ toast("Name and username are required","err"); return; }
     if(isNew){
-      if(state.db.users.some(u=>u.username.toLowerCase()===username.toLowerCase())){
+      if(activeUsers().some(u=>u.username.toLowerCase()===username.toLowerCase())){
         toast("Username already exists","err"); return;
       }
       if(!pass){ toast("Password is required","err"); return; }
@@ -2054,7 +2066,7 @@ function openUserModal(user){
   };
   if(!isNew){
     $("#delUser").onclick = async ()=>{
-      state.db.users = state.db.users.filter(u=>u.id!==user.id);
+      user.deleted = true; user.active = false; user.updatedAt = nowIso();
       await pushToDrive();
       bg.remove();
       render();
@@ -2192,7 +2204,7 @@ function renderSettingsPanel(el){
   };
 
   $("#saveSettingsBtn").onclick = async ()=>{
-    draft.businessName = $("#stName").value.trim() || "Roastline Coffee";
+    draft.businessName = $("#stName").value.trim() || "Sade Coffee";
     const presetCode = $("#stCurrencyPreset").value;
     if(presetCode==="CUSTOM"){
       draft.currencyCode = "CUSTOM";
