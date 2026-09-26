@@ -1409,6 +1409,9 @@ function openCloseDayModal(){
   todaySales.forEach(s=>s.items.forEach(it=>{
     byProduct[it.name] = (byProduct[it.name]||0) + it.qty;
   }));
+  const couponsUsed = todaySales.filter(s=>s.couponCode && s.discountAmt>0)
+    .map(s=>({ code:s.couponCode, percent:s.discountPercent, discountAmt:s.discountAmt }));
+  const couponsDiscountTotal = couponsUsed.reduce((s,c)=>s+c.discountAmt,0);
   const reportRows = `
     <div class="rline"><span>Cashier</span><span>${state.currentUser.name||state.currentUser.username}</span></div>
     <div class="rline"><span>Date</span><span>${todayStr()}</span></div>
@@ -1418,6 +1421,7 @@ function openCloseDayModal(){
     <div class="rline"><span>Card</span><span>${money(card)}</span></div>
     <hr/>
     ${Object.entries(byProduct).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
+    ${couponsUsed.length ? `<hr/><div class="rline"><span>Coupons used</span><span>${couponsUsed.length}</span></div>${couponsUsed.map(c=>`<div class="rline"><span>&nbsp;&nbsp;${c.code} (${c.percent}%)</span><span>−${money(c.discountAmt)}</span></div>`).join("")}<div class="rline"><span>Total discount given</span><span>−${money(couponsDiscountTotal)}</span></div>` : ""}
     <hr/>
     <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(total)}</span></div>`;
   const bg = document.createElement("div");
@@ -1444,7 +1448,7 @@ function openCloseDayModal(){
       date: todayStr(),
       totalSales: total,
       transactionCount: todaySales.length,
-      breakdown: { cash, card, byProduct },
+      breakdown: { cash, card, byProduct, couponsUsed, couponsDiscountTotal },
       closedAt: nowIso()
     };
     state.db.dayCloses.push(report);
@@ -1490,17 +1494,19 @@ function statsForToday(){
 function renderLiveSales(el, editable){
   const {count, total, sales} = statsForToday();
   const activeCashiers = new Set(sales.map(s=>s.cashierName)).size;
+  const couponsUsedToday = sales.filter(s=>s.couponCode && s.discountAmt>0);
   el.innerHTML = `
     <div class="stat-grid">
       <div class="stat"><div class="label">Today's revenue</div><div class="value">${money(total)}</div></div>
       <div class="stat"><div class="label">Transactions</div><div class="value">${count}</div></div>
       <div class="stat"><div class="label">Active cashiers today</div><div class="value">${activeCashiers}</div></div>
+      <div class="stat"><div class="label">Coupons used today</div><div class="value">${couponsUsedToday.length}</div></div>
       <div class="stat"><div class="label">System status</div><div class="value" style="font-size:16px; color:${state.db.meta.appActive?'var(--ok)':'var(--err)'};">${state.db.meta.appActive?'Active':'Deactivated'}</div></div>
     </div>
     <div class="card">
       <h3 style="margin-bottom:12px; font-size:15px;">Recent transactions</h3>
       <table>
-        <thead><tr><th>Time</th><th>Cashier</th><th>Items</th><th>Pay</th><th style="text-align:right;">Total</th></tr></thead>
+        <thead><tr><th>Time</th><th>Cashier</th><th>Items</th><th>Pay</th><th>Coupon</th><th style="text-align:right;">Total</th></tr></thead>
         <tbody>
           ${sales.slice().reverse().slice(0,40).map(s=>`
             <tr>
@@ -1508,8 +1514,9 @@ function renderLiveSales(el, editable){
               <td>${s.cashierName}</td>
               <td>${s.items.map(i=>i.qty+"× "+i.name).join(", ")}</td>
               <td style="text-transform:capitalize;">${s.payment}</td>
+              <td class="mono">${s.couponCode && s.discountAmt>0 ? `${s.couponCode} (−${money(s.discountAmt)})` : "—"}</td>
               <td style="text-align:right;">${money(s.total)}</td>
-            </tr>`).join("") || `<tr><td colspan="5" style="text-align:center; color:var(--crema-dim); padding:24px;">No sales yet today.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="6" style="text-align:center; color:var(--crema-dim); padding:24px;">No sales yet today.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1524,7 +1531,7 @@ function renderReportsList(el, editable){
         <button class="btn btn-outline" id="exportDayClosesBtn">⬇️ Export to Excel</button>
       </div>
       <table>
-        <thead><tr><th>Date</th><th>Cashier</th><th>Transactions</th><th>Cash</th><th>Card</th><th style="text-align:right;">Total</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Cashier</th><th>Transactions</th><th>Cash</th><th>Card</th><th>Coupons</th><th style="text-align:right;">Total</th><th></th></tr></thead>
         <tbody>
           ${closes.map(c=>`
             <tr>
@@ -1533,9 +1540,10 @@ function renderReportsList(el, editable){
               <td>${c.transactionCount}</td>
               <td>${money(c.breakdown.cash)}</td>
               <td>${money(c.breakdown.card)}</td>
+              <td>${(c.breakdown.couponsUsed||[]).length ? `${c.breakdown.couponsUsed.length} (−${money(c.breakdown.couponsDiscountTotal||0)})` : "—"}</td>
               <td style="text-align:right;">${money(c.totalSales)}</td>
               <td><a class="link" data-print="${c.id}">Print</a>${editable?` · <a class="link" data-delete="${c.id}" style="color:var(--err);">Delete</a>`:""}</td>
-            </tr>`).join("") || `<tr><td colspan="7" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="8" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1543,6 +1551,7 @@ function renderReportsList(el, editable){
   el.querySelectorAll("[data-print]").forEach(a=>{
     a.onclick = ()=>{
       const c = closes.find(x=>x.id===a.dataset.print);
+      const couponsUsed = c.breakdown.couponsUsed||[];
       const rows = `
         <div class="rline"><span>Cashier</span><span>${c.cashierName}</span></div>
         <div class="rline"><span>Date</span><span>${c.date}</span></div>
@@ -1552,6 +1561,7 @@ function renderReportsList(el, editable){
         <div class="rline"><span>Card</span><span>${money(c.breakdown.card)}</span></div>
         <hr/>
         ${Object.entries(c.breakdown.byProduct||{}).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
+        ${couponsUsed.length ? `<hr/><div class="rline"><span>Coupons used</span><span>${couponsUsed.length}</span></div>${couponsUsed.map(cu=>`<div class="rline"><span>&nbsp;&nbsp;${cu.code} (${cu.percent}%)</span><span>−${money(cu.discountAmt)}</span></div>`).join("")}<div class="rline"><span>Total discount given</span><span>−${money(c.breakdown.couponsDiscountTotal||0)}</span></div>` : ""}
         <hr/>
         <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(c.totalSales)}</span></div>`;
       printHTML(`<div class="receipt">${receiptWrap(rows)}</div>`);
@@ -1591,7 +1601,10 @@ function exportDayClosesExcel(){
   if(!window.XLSX){ toast("Excel library still loading, try again in a moment", "err"); return; }
   const rows = state.db.dayCloses.map(c=>({
     Date: c.date, Cashier: c.cashierName, Transactions: c.transactionCount,
-    Cash: c.breakdown.cash, Card: c.breakdown.card, Total: c.totalSales,
+    Cash: c.breakdown.cash, Card: c.breakdown.card,
+    "Coupons Used": (c.breakdown.couponsUsed||[]).length,
+    "Coupon Discount Total": c.breakdown.couponsDiscountTotal||0,
+    Total: c.totalSales,
     "Closed At": new Date(c.closedAt).toLocaleString()
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -1618,13 +1631,19 @@ function exportMonthlyExcel(monthValue){
   }));
   const salesRows = monthSales.map(s=>({
     Date:s.date, Time:new Date(s.timestamp).toLocaleTimeString(), Cashier:s.cashierName,
-    Items: s.items.map(i=>i.qty+"x "+i.name).join(", "), Subtotal:s.subtotal, Discount:s.discountAmt||0,
+    Items: s.items.map(i=>i.qty+"x "+i.name).join(", "), Subtotal:s.subtotal,
+    Coupon: s.discountAmt>0 ? s.couponCode : "", Discount:s.discountAmt||0,
     Total:s.total, Payment:s.payment
+  }));
+  const couponRows = monthSales.filter(s=>s.discountAmt>0 && s.couponCode).map(s=>({
+    Date:s.date, Time:new Date(s.timestamp).toLocaleTimeString(), Cashier:s.cashierName,
+    Code:s.couponCode, Percent:s.discountPercent, "Discount Given":s.discountAmt
   }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(byDay)), "Daily Summary");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(salesRows), "All Sales");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(byProduct)), "By Product");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(couponRows.length?couponRows:[{Date:"",Time:"",Cashier:"",Code:"",Percent:"",  "Discount Given":""}]), "Coupons Used");
   XLSX.writeFile(wb, "sade-monthly-report-"+monthValue+".xlsx");
 }
 
@@ -1942,6 +1961,19 @@ function renderCouponsList(el, editable){
       e.target.value = "";
       render();
     });
+  }
+
+  const usedCoupons = (state.db.coupons||[]).filter(c=>c.deleted)
+    .sort((a,b)=> new Date(b.updatedAt||0)-new Date(a.updatedAt||0));
+  if(usedCoupons.length){
+    const usedCard = document.createElement("div");
+    usedCard.className = "card";
+    usedCard.style.marginTop = "16px";
+    usedCard.innerHTML = `<h3 style="margin-bottom:6px; font-size:15px;">Used coupons (${usedCoupons.length})</h3>
+      <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">Codes that have already been spent — each is single-use, so these can't be applied again. Kept here as a history, not editable.</p>
+      <table><thead><tr><th>Code</th><th>Discount</th><th>Used</th></tr></thead>
+      <tbody>${usedCoupons.map(c=>`<tr><td class="mono">${c.code}</td><td>${c.percent}% off</td><td class="mono">${new Date(c.updatedAt).toLocaleString()}</td></tr>`).join("")}</tbody></table>`;
+    el.appendChild(usedCard);
   }
 }
 
