@@ -348,8 +348,8 @@
    Fill these in. Create a GitHub Personal Access Token (classic) with
    "gist" scope only. See in-app Setup screen for details. */
 const CONFIG = {
-  GITHUB_TOKEN: "",
-  // <-- paste your PAT here (needs "gist" scope)
+ const CONFIG = {
+  GITHUB_TOKEN: "",     // ← empty, will be filled at runtime
   GIST_FILENAME: "sade_pos_db.json",
   GIST_DESCRIPTION: "Sade POS database",
   SYNC_INTERVAL_MS: 20000
@@ -857,6 +857,13 @@ async function init(){
   if(screen.orientation && screen.orientation.lock){
     screen.orientation.lock("landscape").catch(()=>{});
   }
+
+  // Load token from localStorage (set on first run)
+  const savedToken = localStorage.getItem("sade_gh_token");
+  if(savedToken){
+    CONFIG.GITHUB_TOKEN = savedToken;
+  }
+
   if(!CONFIG.GITHUB_TOKEN){
     state.view = "setup";
     render();
@@ -877,7 +884,6 @@ async function init(){
   state.view = "connect";
   render();
 }
-
 async function seedDefaultDbUsers(db){
   const hash = await sha256("developer123");
   db.users.push({
@@ -936,28 +942,48 @@ function renderSetupScreen(el){
   wrap.className = "center-screen";
   wrap.innerHTML = `
     <div class="panel" style="max-width:560px;">
-      <div class="brand"><div class="mark">S</div><div><div class="name">Sade POS</div><div class="sub">SETUP REQUIRED</div></div></div>
+      <div class="brand">
+        <div class="mark">S</div>
+        <div>
+          <div class="name">Sade POS</div>
+          <div class="sub">SETUP REQUIRED</div>
+        </div>
+      </div>
       <div class="card">
         <h3 style="margin-bottom:12px;">Connect this app to GitHub</h3>
         <p style="font-size:13px; color:var(--paper-dim); line-height:1.6; margin-bottom:14px;">
-          This app stores everything (products, users, sales, reports) in a private GitHub Gist.
-          You need a free GitHub Personal Access Token with only the <b>gist</b> scope.
+          Paste a GitHub Personal Access Token with only the <b>gist</b> scope.
+          It will be stored locally on this device and never uploaded anywhere.
         </p>
-        <ol class="setup-steps" style="padding-left:18px;">
-          <li>Go to <code>github.com/settings/tokens</code>.</li>
-          <li>Click <b>Generate new token (classic)</b>.</li>
-          <li>Give it a name (e.g. "Sade POS"), set an expiration, and check <b>only</b> the <code>gist</code> scope.</li>
-          <li>Click <b>Generate token</b> and copy it.</li>
-          <li>Paste the token into <code>CONFIG.GITHUB_TOKEN</code> near the top of this file's script, then reload.</li>
-        </ol>
-        <p style="font-size:12px; color:var(--crema-dim); margin-top:12px;">
-          The app will create a private gist called <code>${CONFIG.GIST_FILENAME}</code> on first run.
+        <div class="field">
+          <label>GitHub Personal Access Token</label>
+          <input id="setupToken" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false" />
+        </div>
+        <button class="btn btn-primary btn-block" id="setupSaveBtn">Save token &amp; continue</button>
+        <p style="font-size:12px; color:var(--crema-dim); margin-top:12px; line-height:1.5;">
+          Don't have one? Go to <code>github.com/settings/tokens</code> →
+          <b>Generate new token (classic)</b> → check only the <b>gist</b> scope.
         </p>
       </div>
     </div>`;
   el.appendChild(wrap);
-}
 
+  // When the user clicks "Save token & continue"
+  $("#setupSaveBtn").onclick = ()=>{
+    const token = $("#setupToken").value.trim();
+    if(!token){ 
+      toast("Please paste a token first", "err"); 
+      return; 
+    }
+    // Save it to the browser's local storage
+    localStorage.setItem("sade_gh_token", token);
+    // Update the in-memory CONFIG so the app can use it immediately
+    CONFIG.GITHUB_TOKEN = token;
+    // Move to the next screen (the "Connect GitHub" button page)
+    state.view = "connect";
+    render();
+  };
+}
 /* ---------------- CONNECT SCREEN ---------------- */
 function renderConnectScreen(el){
   const wrap = document.createElement("div");
