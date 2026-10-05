@@ -736,11 +736,22 @@ function base64ToUtf8(str){ return decodeURIComponent(escape(atob(str.replace(/\
 
 /* "Connecting" now just means validating the pasted token works, rather
    than an OAuth popup flow. */
+/* Checks the token and the data repository, and throws an error whose message says exactly what is wrong. */
 async function connectDrive(){
   if(!state.accessToken) throw new Error("No access token set");
-  const res = await fetch(ghApiUrl(), { headers: authHeaders() });
-  if(res.status === 401 || res.status === 403) throw new Error("Invalid or expired token");
-  // 404 is fine here — it just means the database file doesn't exist yet.
+  const repoName = CONFIG.GITHUB_OWNER + "/" + CONFIG.GITHUB_REPO;
+  let res;
+  try{
+    res = await fetch(`https://api.github.com/repos/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}`, { headers: authHeaders() });
+  }catch(e){ throw new Error("No internet connection"); }
+  if(res.status === 401) throw new Error("The token is invalid or expired — create a new one and paste it again");
+  if(res.status === 404) throw new Error(`Repository ${repoName} was not found, or this token can't see it. Check the name, and create the token on the ${CONFIG.GITHUB_OWNER} account with this repository selected`);
+  if(res.status === 403) throw new Error("GitHub refused the token (403) — check its permissions or wait a minute if you tried many times");
+  if(!res.ok) throw new Error("GitHub error " + res.status);
+  const info = await res.json();
+  if(info.private === false) throw new Error(`${repoName} is PUBLIC — set it to Private in the repository settings first, so your sales data stays hidden`);
+  if(info.permissions && info.permissions.push === false) throw new Error("This token is read-only — set Contents to Read and write");
+  // a missing database file (404) is fine here — it is created next.
 }
 
 async function driveFindDbFile(){
@@ -761,7 +772,8 @@ async function driveCreateDbFile(dbObj){
       content: utf8ToBase64(JSON.stringify(dbObj, null, 2))
     })
   });
-  if(!res.ok) throw new Error("GitHub create failed: "+res.status);
+  if(res.status === 403 || res.status === 404) throw new Error(`GitHub won't let this token create the database file (${res.status}). On the token, set Contents to Read and write for ${CONFIG.GITHUB_REPO}`);
+  if(!res.ok) throw new Error("Couldn't create the database file (GitHub " + res.status + ")");
   const data = await res.json();
   state.fileSha = data.content.sha;
   return CONFIG.DB_FILENAME;
@@ -1047,7 +1059,7 @@ async function handleConnect(){
     render();
   }catch(e){
     console.error(e);
-    toast("Could not connect. Check your token, repository name, and permissions.", "err");
+    toast("Could not connect — " + ((e && e.message) || "check your token, repository name, and permissions") + ".", "err");
   }
 }
 
