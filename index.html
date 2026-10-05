@@ -122,7 +122,7 @@
   ::-webkit-scrollbar{width:9px; height:9px;}
   ::-webkit-scrollbar-thumb{background:var(--espresso-2); border-radius:6px;}
 
-  /* ---------- centered screens ---------- */
+  /* ---------- centered screens (connect / login / setup) ---------- */
   .center-screen{
     flex:1; display:flex; align-items:center; justify-content:center; padding:24px;
     background:
@@ -140,7 +140,7 @@
   .brand .name{font-size:19px;}
   .brand .sub{font-size:11px; color:var(--crema-dim); letter-spacing:.03em;}
 
-  /* ---------- shell ---------- */
+  /* ---------- shell (logged-in layout) ---------- */
   .shell{flex:1; display:flex; flex-direction:column; min-height:100vh;}
   .topbar{
     display:flex; align-items:center; justify-content:space-between;
@@ -159,7 +159,7 @@
   .main{flex:1; padding:22px; max-width:1400px; width:100%; margin:0 auto;}
   .main.main-full{max-width:100%;}
 
-  /* ---------- POS ---------- */
+  /* ---------- POS (cashier) ---------- */
   .pos-layout{display:grid; grid-template-columns:1fr var(--numpad-width) var(--cart-width); gap:18px; align-items:start;}
   @media(max-width:1150px){.pos-layout{grid-template-columns:1fr; }}
   .product-grid{
@@ -232,6 +232,20 @@
   }
   .receipt .rline{display:flex; justify-content:space-between;}
   .receipt hr{border:none; border-top:1px dashed #231a12; opacity:.35; margin:8px 0;}
+  .receipt .rsub{padding-left:14px; font-size:11.5px; opacity:.85; line-height:1.4;}
+  .receipt .rnum{align-items:baseline;}
+  .receipt .rnum .num{font-size:1.5em; line-height:1.2;}
+  .ci-opts{font-size:11px; color:var(--crema-dim); margin-top:2px; line-height:1.35;}
+  .opt-group{margin-bottom:16px;}
+  .opt-group h4{font-size:13px; margin-bottom:8px;}
+  .opt-group h4 small{font-weight:400; color:var(--crema-dim); margin-left:6px;}
+  .opt-choice{display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--line); border-radius:8px; margin-bottom:6px; cursor:pointer; font-size:14px;}
+  .opt-choice input{width:auto !important; margin:0;}
+  .opt-choice .opt-extra{margin-left:auto; color:var(--crema-dim); font-size:12px;}
+  .opt-choice:has(input:checked){border-color:var(--copper);}
+  .og-box{border:1px solid var(--line); border-radius:8px; padding:12px; margin-bottom:10px;}
+  .og-row{display:flex; gap:8px; margin-bottom:6px;}
+  .og-row input{min-width:0;}
 
   .empty-state{padding:50px 20px; text-align:center; color:var(--crema-dim);}
   .empty-state .big{font-size:38px; margin-bottom:10px;}
@@ -266,7 +280,7 @@
   .cat-row .cname{font-weight:600; font-size:13.5px;}
   .cat-row .ccount{font-size:11px; color:var(--crema-dim);}
 
-  /* ---------- fixed grid ---------- */
+  /* ---------- fixed N-column grid (auto-aligned, developer sets rows/cols) ---------- */
   .product-grid.fixed-grid{
     grid-template-columns:repeat(var(--grid-cols,6), 1fr);
     grid-auto-rows:var(--btn-height, 100px);
@@ -305,6 +319,7 @@
   /* ---------- print ---------- */
   #printArea{display:none;}
   @media print{
+    @page{ margin:6mm; }
     body *{visibility:hidden;}
     #printArea, #printArea *{visibility:visible;}
     #printArea{
@@ -313,7 +328,10 @@
     }
   }
 
-  /* ---------- landscape-only on phones ---------- */
+  /* ---------- landscape-only on phones ----------
+     manifest.json's "orientation":"landscape" locks this when installed as a
+     PWA on Android, but that isn't honored on iOS or in a plain browser tab,
+     so this overlay is the reliable fallback everywhere. */
   #rotateOverlay{display:none;}
   @media (max-width:900px) and (orientation:portrait){
     #app{display:none;}
@@ -338,22 +356,23 @@
 
 <script>
 /* =========================================================================
-   SADE POS — single-file PWA point of sale backed by GitHub Gist.
+   SADE POS — single-file PWA point of sale backed by a private GitHub repo.
    Roles: developer (build/manage, hidden from the team list),
           admin (view-only), cashier (sell).
-   Coupons: single-use only, status Active / Disabled / Used.
    ========================================================================= */
 
 /* ---------------- CONFIG ----------------
-   Fill these in. Create a GitHub Personal Access Token (classic) with
-   "gist" scope only. See in-app Setup screen for details. */
+   Fill these in to match your own private GitHub repository (see the
+   in-app Setup screen for exact steps). */
 const CONFIG = {
- const CONFIG = {
-  GITHUB_TOKEN: "",     // ← empty, will be filled at runtime
-  GIST_FILENAME: "sade_pos_db.json",
-  GIST_DESCRIPTION: "Sade POS database",
+  GITHUB_OWNER: "sade-acct",       // GitHub username that owns the private data repo
+  GITHUB_REPO: "sade-pos-data",    // a separate PRIVATE repo — never the public site repo
+  DB_FILENAME: "sade_pos_db.json", // path of the database file inside that repo
   SYNC_INTERVAL_MS: 20000
 };
+
+/* Matches Windows 11's actual system Light/Dark palettes (window bg, card/control
+   surfaces, default accent blue, and text) so the quick-select presets feel native. */
 const LIGHT_THEME = {
   bg:"#f3f3f3", bg2:"#ffffff", accent:"#0078d4", accentLight:"#106ebe", text:"#1b1b1b"
 };
@@ -369,7 +388,9 @@ const CURRENCY_PRESETS = [
 
 /* ---------------- STATE ---------------- */
 const state = {
-  gistId: null,
+  accessToken: null,   // GitHub Personal Access Token
+  fileSha: null,       // current known blob sha of the database file (GitHub requires this to write)
+  dbFileId: null,
   db: null,
   currentUser: null,
   cart: [],
@@ -384,7 +405,8 @@ const state = {
   dragProductId: null,
   dragCategoryId: null,
   numpadAmount: "",
-  numpadTarget: null
+  staffMember: null,   // {id, name} while a staff order is active
+  numpadTarget: null   // null (locked), {kind:"product", id, name, isDrink}, or {kind:"coupon"}
 };
 
 const $ = sel => document.querySelector(sel);
@@ -392,6 +414,20 @@ const app = () => document.getElementById("app");
 const uid = () => crypto.randomUUID();
 const nowIso = () => new Date().toISOString();
 const todayStr = () => new Date().toISOString().slice(0,10);
+function esc(s){ return String(s==null?"":s).replace(/[&<>"]/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+function pad2(n){ return String(n).padStart(2,"0"); }
+/* dd/mm/yyyy — accepts an ISO timestamp, a Date, or a "yyyy-mm-dd" string */
+function fmtDate(v){
+  if(typeof v==="string" && /^\d{4}-\d{2}-\d{2}$/.test(v)){ const p=v.split("-"); return p[2]+"/"+p[1]+"/"+p[0]; }
+  const d = new Date(v);
+  if(isNaN(d)) return "";
+  return pad2(d.getDate())+"/"+pad2(d.getMonth()+1)+"/"+d.getFullYear();
+}
+function fmtDateTime(v){
+  const d = new Date(v);
+  if(isNaN(d)) return "";
+  return fmtDate(d)+" "+pad2(d.getHours())+":"+pad2(d.getMinutes());
+}
 function money(n){
   const amt = (Math.round((n||0)*100)/100).toFixed(2);
   const code = state.db && state.db.meta ? state.db.meta.currencyCode : "USD";
@@ -401,6 +437,7 @@ function money(n){
   const sym = (state.db && state.db.meta && state.db.meta.currencySymbol) || "$";
   return sym + amt;
 }
+/* plain-text version (no HTML) for places that can't render markup, e.g. window.print titles */
 function moneyText(n){
   const amt = (Math.round((n||0)*100)/100).toFixed(2);
   const code = state.db && state.db.meta ? state.db.meta.currencyCode : "USD";
@@ -431,6 +468,9 @@ function defaultDb(){
       currencySymbol: "$", currencyCode: "USD", freeLayout: false,
       layout: { numpadWidth: 300, cartWidth: 340, canvasHeight: 560, gridCols: 6, gridRows: 4 },
       roleLabels: { admin: "Admin", cashier: "Cashier" },
+      adminTabs: { live:true, reports:true, menu:true, categories:true, coupons:true, team:true },
+      printCopies: 1,
+      staffEnabled: false, staffPinRequired: false, staffDiscountPercent: 100,
       receiptHeader: "", receiptFooter: "Thank you!", autoPrintReceipt: true,
       theme: {...DEFAULT_THEME}, updatedAt: nowIso()
     },
@@ -448,10 +488,34 @@ function defaultDb(){
       { id: uid(), name:"Muffin", price:3.25, categoryId:catBakery, emoji:"🧁", color:"#a8763e", isDrink:false, active:true, order:5, updatedAt: nowIso() },
     ],
     coupons: [],
+    staff: [],
+    staffUsage: [],
     sales: [],
-    dayCloses: [],
-    deleted: []
+    dayCloses: []
   };
+}
+
+/* bring an older/incomplete db up to the current shape — always safe to re-run */
+/* Day-close reports: when two reports are identical in everything but the closing time
+   (same date, cashier, transaction count, cash, card, coupons and total), only the latest
+   is kept and the earlier one(s) are removed. Runs on every load/merge, so a removed copy
+   can't come back from another device. */
+function dedupeDayCloses(list){
+  const best = new Map();
+  (list||[]).forEach(c=>{
+    const b = c.breakdown || {};
+    const key = [
+      c.date, c.cashierId || c.cashierName, c.transactionCount,
+      Math.round((+b.cash||0)*100), Math.round((+b.card||0)*100), Math.round((+c.totalSales||0)*100),
+      (b.couponsUsed||[]).length, Math.round((+b.couponsDiscountTotal||0)*100)
+    ].join("|");
+    const cur = best.get(key);
+    const t = new Date(c.closedAt || 0).getTime() || 0;
+    const ct = cur ? (new Date(cur.closedAt || 0).getTime() || 0) : -1;
+    if(!cur || t > ct || (t === ct && String(c.id) > String(cur.id))) best.set(key, c);
+  });
+  const keep = new Set([...best.values()].map(c=>c.id));
+  return (list||[]).filter(c=>keep.has(c.id));
 }
 
 function migrateDb(db){
@@ -467,19 +531,28 @@ function migrateDb(db){
   if(!db.meta.roleLabels) db.meta.roleLabels = { admin: "Admin", cashier: "Cashier" };
   if(!db.meta.roleLabels.admin) db.meta.roleLabels.admin = "Admin";
   if(!db.meta.roleLabels.cashier) db.meta.roleLabels.cashier = "Cashier";
+  if(!db.meta.adminTabs) db.meta.adminTabs = { live:true, reports:true, menu:true, categories:true, coupons:true, team:true };
+  ["live","reports","menu","categories","coupons","team"].forEach(k=>{
+    if(db.meta.adminTabs[k]===undefined) db.meta.adminTabs[k] = true;
+  });
+  if(db.meta.printCopies===undefined) db.meta.printCopies = 1;
   if(db.meta.receiptHeader===undefined) db.meta.receiptHeader = "";
   if(!db.meta.receiptFooter) db.meta.receiptFooter = "Thank you!";
   if(db.meta.autoPrintReceipt===undefined) db.meta.autoPrintReceipt = true;
   if(db.meta.logoDataUrl===undefined) db.meta.logoDataUrl = null;
   if(!db.meta.theme) db.meta.theme = {...DEFAULT_THEME};
   if(!db.meta.updatedAt) db.meta.updatedAt = nowIso();
+  if(db.meta.staffEnabled===undefined) db.meta.staffEnabled = false;
+  if(db.meta.staffPinRequired===undefined) db.meta.staffPinRequired = false;
+  if(db.meta.staffDiscountPercent===undefined) db.meta.staffDiscountPercent = 100;
 
+  db.staff = db.staff || [];
+  db.staffUsage = db.staffUsage || [];
   db.users = db.users || [];
   db.products = db.products || [];
   db.coupons = db.coupons || [];
   db.sales = db.sales || [];
-  db.dayCloses = db.dayCloses || [];
-  db.deleted = db.deleted || [];
+  db.dayCloses = dedupeDayCloses(db.dayCloses || []);
 
   if(!db.categories || db.categories.length===0){
     db.categories = [
@@ -497,15 +570,10 @@ function migrateDb(db){
     if(p.active===undefined) p.active = true;
     if(p.price===undefined) p.price = 0;
     if(!p.pos){
+      // fallback grid so nothing overlaps if free layout gets turned on later
       const col = i % 6, row = Math.floor(i/6);
       p.pos = { xPct: 4 + col*16, yPct: 6 + row*22 };
     }
-  });
-  // Ensure every coupon has a status field (Active / Disabled / Used)
-  db.coupons.forEach(c=>{
-    if(!c.status) c.status = c.active === false ? "Disabled" : "Active";
-    // keep `active` in sync for legacy checks
-    c.active = (c.status === "Active");
   });
   db.sales.forEach(s=>{
     if(s.subtotal===undefined) s.subtotal = s.total;
@@ -515,14 +583,7 @@ function migrateDb(db){
   return db;
 }
 
-function markDeleted(collection, id){
-  if(state.db[collection]){
-    state.db[collection] = state.db[collection].filter(r=>r.id!==id);
-  }
-  state.db.deleted = (state.db.deleted||[]).filter(d=>!(d.collection===collection && d.id===id));
-  state.db.deleted.push({ id, collection, updatedAt: nowIso() });
-}
-
+/* apply theme colors from db.meta.theme onto the page */
 function hexLuminance(hex){
   hex = (hex||"#ffffff").replace("#","");
   if(hex.length===3) hex = hex.split("").map(c=>c+c).join("");
@@ -537,6 +598,8 @@ function applyDerivedNeutrals(bgHex){
   root.setProperty("--crema-dim", dark ? "#c7a877" : "#8a8886");
   root.setProperty("--paper-dim", dark ? "#d9cbb4" : "#484644");
 }
+/* text placed on top of the accent color (buttons, badges) needs to flip
+   dark/light depending on how bright the accent itself is */
 function applyAccentText(accentHex){
   const dark = hexLuminance(accentHex) < 0.6;
   document.documentElement.style.setProperty("--accent-text", dark ? "#ffffff" : "#1b1b1b");
@@ -555,6 +618,8 @@ function applyTheme(){
   applyLayout();
   applyBrandingToTab();
 }
+/* keeps the browser tab's title and favicon in sync with the developer's
+   business name / logo settings, so there's nothing to hand-edit in code */
 function applyBrandingToTab(){
   if(!state.db || !state.db.meta) return;
   document.title = state.db.meta.businessName || "Sade POS";
@@ -602,23 +667,32 @@ function applyLayoutDraft(draft){
   root.setProperty("--btn-height", draft.btnHeight + "px");
 }
 
+/* developer-customizable display names for the admin/cashier roles */
 function roleLabel(key){
   if(key==="developer") return "Developer";
   const labels = state.db && state.db.meta && state.db.meta.roleLabels;
   return (labels && labels[key]) || (key.charAt(0).toUpperCase()+key.slice(1));
 }
 
-function printHTML(innerHtml){
+/* print any HTML fragment using a hidden print-only container.
+   `copies` repeats the fragment in the SAME print job (one dialog, N copies
+   separated by page breaks) rather than calling window.print() repeatedly,
+   which would stack multiple dialogs. Only sale receipts pass a copies
+   count; printed reports stay at a single copy. */
+function printHTML(innerHtml, copies){
+  copies = Math.max(1, copies || 1);
   let area = document.getElementById("printArea");
   if(!area){
     area = document.createElement("div");
     area.id = "printArea";
     document.body.appendChild(area);
   }
-  area.innerHTML = innerHtml;
+  area.innerHTML = Array.from({length:copies}, ()=>innerHtml)
+    .join('<div style="page-break-after:always; height:0;"></div>');
   window.print();
 }
 
+/* wraps receipt/report rows with the developer's logo, business name, header & footer */
 function receiptWrap(innerRowsHtml){
   const m = state.db.meta;
   return `
@@ -631,105 +705,121 @@ function receiptWrap(innerRowsHtml){
     <div style="text-align:center;font-size:11px;white-space:pre-line;">${m.receiptFooter||"Thank you!"}</div>`;
 }
 
-/* ---------------- LOCAL CACHE ---------------- */
-function cacheKey(){ return "sade_cache_" + CONFIG.GIST_FILENAME; }
+/* ---------------- LOCAL CACHE (offline resilience) ----------------
+   NOTE: uses localStorage, which only works once this file is hosted on
+   its own real address (GitHub Pages, etc) — not inside Claude's in-chat
+   preview. It's a safety net so a dropped connection mid-shift doesn't
+   lose sales; it is not a substitute for the GitHub-hosted database. */
+function cacheKey(){ return "sade_cache_" + CONFIG.DB_FILENAME; }
 function saveLocalCache(){
-  try{ localStorage.setItem(cacheKey(), JSON.stringify({ gistId: state.gistId, db: state.db })); }catch(e){}
+  try{ localStorage.setItem(cacheKey(), JSON.stringify({ dbFileId: state.dbFileId, db: state.db })); }catch(e){}
 }
 function loadLocalCache(){
   try{ const raw = localStorage.getItem(cacheKey()); return raw ? JSON.parse(raw) : null; }catch(e){ return null; }
 }
 
-/* ================= GITHUB GIST LAYER ================= */
+/* ================= GITHUB STORAGE LAYER =================
+   Same role Google Drive used to play — one JSON file is the whole database.
+   Function names (connectDrive, driveReadFile, driveWriteFile, authHeaders,
+   pushToDrive, pullFromDrive...) are kept as-is throughout the app even
+   though the backend is now GitHub, so nothing elsewhere had to change. */
 
-function githubHeaders(){
-  return {
-    "Authorization": "token " + CONFIG.GITHUB_TOKEN,
-    "Accept": "application/vnd.github+json",
-    "Content-Type": "application/json"
-  };
+function authHeaders(){
+  return { "Authorization": "token " + state.accessToken, "Accept": "application/vnd.github+json" };
+}
+function ghApiUrl(){
+  return `https://api.github.com/repos/${CONFIG.GITHUB_OWNER}/${CONFIG.GITHUB_REPO}/contents/${CONFIG.DB_FILENAME}`;
+}
+/* UTF-8 safe base64 (GitHub's Contents API stores file bodies as base64) */
+function utf8ToBase64(str){ return btoa(unescape(encodeURIComponent(str))); }
+function base64ToUtf8(str){ return decodeURIComponent(escape(atob(str.replace(/\n/g,"")))); }
+
+/* "Connecting" now just means validating the pasted token works, rather
+   than an OAuth popup flow. */
+async function connectDrive(){
+  if(!state.accessToken) throw new Error("No access token set");
+  const res = await fetch(ghApiUrl(), { headers: authHeaders() });
+  if(res.status === 401 || res.status === 403) throw new Error("Invalid or expired token");
+  // 404 is fine here — it just means the database file doesn't exist yet.
 }
 
-async function gistFindDatabaseGist(){
-  // Search the authenticated user's gists for one containing our DB filename
-  const res = await fetch("https://api.github.com/gists?per_page=100", {headers: githubHeaders()});
-  if(!res.ok){
-    if(res.status === 401) throw new Error("GitHub token is invalid or missing 'gist' scope");
-    throw new Error("GitHub list failed: " + res.status);
-  }
-  const gists = await res.json();
-  for(const g of gists){
-    if(g.files && g.files[CONFIG.GIST_FILENAME]) return g;
-  }
-  return null;
-}
-
-async function gistCreateDatabase(dbObj){
-  const body = {
-    description: CONFIG.GIST_DESCRIPTION,
-    public: false,
-    files: {
-      [CONFIG.GIST_FILENAME]: { content: JSON.stringify(dbObj) }
-    }
-  };
-  const res = await fetch("https://api.github.com/gists", {
-    method: "POST",
-    headers: githubHeaders(),
-    body: JSON.stringify(body)
-  });
-  if(!res.ok) throw new Error("GitHub create failed: " + res.status);
+async function driveFindDbFile(){
+  const res = await fetch(ghApiUrl(), { headers: authHeaders() });
+  if(res.status === 404) return null;
+  if(!res.ok) throw new Error("GitHub read failed: "+res.status);
   const data = await res.json();
-  return data.id;
+  state.fileSha = data.sha;
+  return { id: CONFIG.DB_FILENAME };
 }
 
-async function gistReadFile(gistId){
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {headers: githubHeaders()});
-  if(!res.ok) throw new Error("GitHub read failed: " + res.status);
-  const gist = await res.json();
-  const file = gist.files[CONFIG.GIST_FILENAME];
-  if(!file) throw new Error("Database file not found in gist");
-  // Gist API returns truncated content for large files — fetch raw URL if needed
-  let content = file.content;
-  if(file.truncated && file.raw_url){
-    const rawRes = await fetch(file.raw_url, {headers: { "Authorization": "token " + CONFIG.GITHUB_TOKEN }});
-    if(!rawRes.ok) throw new Error("GitHub raw fetch failed: " + rawRes.status);
-    content = await rawRes.text();
-  }
-  return JSON.parse(content);
-}
-
-async function gistWriteFile(gistId, dbObj){
-  const body = {
-    files: {
-      [CONFIG.GIST_FILENAME]: { content: JSON.stringify(dbObj) }
-    }
-  };
-  const res = await fetch(`https://api.github.com/gists/${gistId}`, {
-    method: "PATCH",
-    headers: githubHeaders(),
-    body: JSON.stringify(body)
+async function driveCreateDbFile(dbObj){
+  const res = await fetch(ghApiUrl(), {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: "Initialize Sade POS database",
+      content: utf8ToBase64(JSON.stringify(dbObj, null, 2))
+    })
   });
-  if(!res.ok) throw new Error("GitHub write failed: " + res.status);
+  if(!res.ok) throw new Error("GitHub create failed: "+res.status);
+  const data = await res.json();
+  state.fileSha = data.content.sha;
+  return CONFIG.DB_FILENAME;
 }
 
+async function driveReadFile(fileId){
+  const res = await fetch(ghApiUrl(), { headers: authHeaders() });
+  if(!res.ok) throw new Error("GitHub read failed: "+res.status);
+  const data = await res.json();
+  state.fileSha = data.sha;
+  return JSON.parse(base64ToUtf8(data.content));
+}
+
+async function driveWriteFile(fileId, dbObj){
+  const res = await fetch(ghApiUrl(), {
+    method: "PUT",
+    headers: { ...authHeaders(), "Content-Type": "application/json" },
+    body: JSON.stringify({
+      message: "Update Sade POS data",
+      content: utf8ToBase64(JSON.stringify(dbObj, null, 2)),
+      sha: state.fileSha
+    })
+  });
+  if(res.status === 409 || res.status === 422){
+    // our copy of the file's sha is stale — someone else saved first.
+    // Re-fetch, merge their changes into ours, and retry once with the
+    // fresh sha, the same spirit as the old Drive merge-before-write.
+    const remote = await driveReadFile();
+    state.db = migrateDb(mergeDb(dbObj, remote));
+    const retry = await fetch(ghApiUrl(), {
+      method: "PUT",
+      headers: { ...authHeaders(), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: "Update Sade POS data (merged)",
+        content: utf8ToBase64(JSON.stringify(state.db, null, 2)),
+        sha: state.fileSha
+      })
+    });
+    if(!retry.ok) throw new Error("GitHub write failed: "+retry.status);
+    const data = await retry.json();
+    state.fileSha = data.content.sha;
+    return;
+  }
+  if(!res.ok) throw new Error("GitHub write failed: "+res.status);
+  const data = await res.json();
+  state.fileSha = data.content.sha;
+}
+
+/* merge remote + local: newer 'updatedAt' wins per-record; sales/dayCloses union by id */
 function mergeDb(local, remote){
   if(!remote) return local;
   if(!local) return remote;
-  const merged = { meta: null, users: [], products: [], categories: [], coupons: [], sales: [], dayCloses: [], deleted: [] };
+  const merged = { meta: null, users: [], products: [], categories: [], coupons: [], staff: [], staffUsage: [], sales: [], dayCloses: [] };
   merged.meta = (new Date(remote.meta.updatedAt) > new Date(local.meta.updatedAt)) ? remote.meta : local.meta;
 
-  const tombMap = {};
-  [...(local.deleted||[]), ...(remote.deleted||[])].forEach(d=>{
-    const key = d.collection+":"+d.id;
-    if(!tombMap[key] || new Date(d.updatedAt) > new Date(tombMap[key].updatedAt)) tombMap[key] = d;
-  });
-  merged.deleted = Object.values(tombMap);
-  const isDeleted = (col,id)=> !!tombMap[col+":"+id];
-
-  function mergeById(a, b, col){
+  function mergeById(a, b){
     const map = {};
     [...(a||[]), ...(b||[])].forEach(rec=>{
-      if(isDeleted(col, rec.id)) return;
       const existing = map[rec.id];
       if(!existing || new Date(rec.updatedAt || rec.createdAt || 0) >= new Date(existing.updatedAt || existing.createdAt || 0)){
         map[rec.id] = rec;
@@ -737,10 +827,11 @@ function mergeDb(local, remote){
     });
     return Object.values(map);
   }
-  merged.users      = mergeById(local.users, remote.users, "users");
-  merged.products   = mergeById(local.products, remote.products, "products");
-  merged.categories = mergeById(local.categories, remote.categories, "categories");
-  merged.coupons    = mergeById(local.coupons, remote.coupons, "coupons");
+  merged.users = mergeById(local.users, remote.users);
+  merged.products = mergeById(local.products, remote.products);
+  merged.categories = mergeById(local.categories, remote.categories);
+  merged.coupons = mergeById(local.coupons, remote.coupons);
+  merged.staff = mergeById(local.staff, remote.staff);
 
   function unionById(a,b){
     const map = {};
@@ -749,16 +840,15 @@ function mergeDb(local, remote){
   }
   merged.sales = unionById(local.sales, remote.sales);
   merged.dayCloses = unionById(local.dayCloses, remote.dayCloses);
+  merged.staffUsage = unionById(local.staffUsage, remote.staffUsage);
   return merged;
 }
 
-async function pullFromGitHub(silent){
-  if(!navigator.onLine || !state.gistId) return;
+async function pullFromDrive(silent){
+  if(!navigator.onLine) return;
   try{
-    const remote = await gistReadFile(state.gistId);
+    const remote = await driveReadFile(state.dbFileId);
     state.db = migrateDb(mergeDb(state.db, remote));
-    const cutoff = Date.now() - 30*24*60*60*1000;
-    state.db.deleted = state.db.deleted.filter(d => new Date(d.updatedAt).getTime() > cutoff);
     applyTheme();
     saveLocalCache();
     if(!silent) render();
@@ -767,7 +857,7 @@ async function pullFromGitHub(silent){
 }
 
 let pendingSave = null;
-async function pushToGitHub(){
+async function pushToDrive(){
   state.db.meta.updatedAt = nowIso();
   saveLocalCache();
   clearTimeout(pendingSave);
@@ -779,7 +869,7 @@ async function pushToGitHub(){
     }
     try{
       state.saving = true;
-      await gistWriteFile(state.gistId, state.db);
+      await driveWriteFile(state.dbFileId, state.db);
       state.offlinePending = false;
     }catch(e){
       console.warn("save failed", e);
@@ -792,98 +882,130 @@ async function pushToGitHub(){
 }
 
 async function flushOffline(){
-  if(!state.gistId || !navigator.onLine) return;
+  if(!state.dbFileId || !navigator.onLine) return;
   try{
-    const remote = await gistReadFile(state.gistId);
+    if(!state.accessToken){
+      // no token in memory at all (device never connected, or it was cleared
+      // because a previous call found it invalid) — nothing to retry
+      // automatically; the sync pill routes to the connect screen instead.
+      return;
+    }
+    const remote = await driveReadFile(state.dbFileId);
     state.db = migrateDb(mergeDb(state.db, remote));
-    await gistWriteFile(state.gistId, state.db);
+    await driveWriteFile(state.dbFileId, state.db);
     state.offlinePending = false;
     saveLocalCache();
     applyTheme();
     startSyncLoop();
-    toast("Back online — synced to GitHub", "ok");
+    toast("Back online — synced", "ok");
     render();
-  }catch(e){ console.warn("flush failed", e); }
+  }catch(e){
+    console.warn("flush failed", e);
+    if(String(e.message||"").match(/40[13]/)){
+      // the token no longer works (revoked/expired) — clear it so the
+      // person is prompted to paste a fresh one, rather than retrying forever
+      state.accessToken = null;
+      clearSavedToken();
+      renderIfLive();
+    }
+  }
 }
 
 function startSyncLoop(){
   clearInterval(state.syncTimer);
   state.syncTimer = setInterval(()=>{
-    if(state.offlinePending) flushOffline();
-    else pullFromGitHub(true);
+    if(state.offlinePending || !state.accessToken) flushOffline();
+    else pullFromDrive(true);
   }, CONFIG.SYNC_INTERVAL_MS);
 }
 
+/* re-render only if we're on a "live" screen, to avoid clobbering form input focus */
 function renderIfLive(){
   if(["admin","developer"].includes(state.view)) render();
   else if(state.view==="cashier"){
+    // just refresh the sync pill without rebuilding the whole cart/typing state
     const pill = document.getElementById("syncPill");
     if(pill){ pill.outerHTML = syncPillHtml(); wireSyncPill(); }
   }
 }
 function syncPillHtml(){
+  if(!state.accessToken){
+    return `<span class="pill" id="syncPill" style="cursor:pointer; border-color:var(--copper);"><span class="dot offline"></span>Tap to connect</span>`;
+  }
   const offline = state.offlinePending || !navigator.onLine;
   return `<span class="pill" id="syncPill"${offline?' style="cursor:pointer;"':''}><span class="dot ${offline?'offline':'live'}"></span>${offline ? "Offline — tap to retry" : (state.saving ? "Syncing…" : "Live")}</span>`;
 }
 function wireSyncPill(){
   const pill = document.getElementById("syncPill");
-  if(pill && state.offlinePending){
+  if(!pill) return;
+  if(!state.accessToken){
+    pill.onclick = ()=>{ state.view = "connect"; render(); };
+  } else if(state.offlinePending){
     pill.onclick = ()=> flushOffline();
   }
 }
 
-window.addEventListener("online", ()=>{ if(state.gistId) flushOffline(); });
+window.addEventListener("online", ()=>{ if(state.dbFileId) flushOffline(); });
 window.addEventListener("offline", ()=>{
   state.offlinePending = true;
   toast("You're offline — sales keep working and will sync automatically", "err");
   renderIfLive();
 });
 
-/* ================= AUTH ================= */
+/* ================= AUTH (in-app roles) ================= */
 
 async function tryLogin(username, password){
   const hash = await sha256(password);
-  const user = state.db.users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.active !== false);
+  const user = activeUsers().find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.active !== false);
   if(!user || user.passwordHash !== hash) return null;
   return user;
 }
 
-/* ================= INIT ================= */
+/* saved access token lives in its own localStorage key, separate from the
+   app-data cache, so it survives independently and is never written into
+   the synced database itself */
+function saveToken(pat){ try{ localStorage.setItem("sade_gh_pat", pat); }catch(e){} }
+function loadSavedToken(){ try{ return localStorage.getItem("sade_gh_pat"); }catch(e){ return null; } }
+function clearSavedToken(){ try{ localStorage.removeItem("sade_gh_pat"); }catch(e){} }
+
+/* ================= INIT / BOOTSTRAP ================= */
 
 async function init(){
   if("serviceWorker" in navigator){
     navigator.serviceWorker.register("sw.js").catch(()=>{});
   }
+  // best-effort native orientation lock (only works in fullscreen/installed
+  // contexts on some browsers) — the CSS rotate overlay is the real fallback
   if(screen.orientation && screen.orientation.lock){
     screen.orientation.lock("landscape").catch(()=>{});
   }
-
-  // Load token from localStorage (set on first run)
-  const savedToken = localStorage.getItem("sade_gh_token");
-  if(savedToken){
-    CONFIG.GITHUB_TOKEN = savedToken;
-  }
-
-  if(!CONFIG.GITHUB_TOKEN){
+  if(CONFIG.GITHUB_OWNER.includes("YOUR_") || CONFIG.GITHUB_REPO.includes("YOUR_")){
     state.view = "setup";
     render();
     return;
   }
 
+  const savedToken = loadSavedToken();
+  if(savedToken) state.accessToken = savedToken;
+
+  // If this device has synced before, boot straight into the app from the
+  // local cache — no network required — so the PWA is usable offline from a
+  // cold start, not just mid-session.
   const cached = loadLocalCache();
   if(cached && cached.db){
-    state.gistId = cached.gistId;
+    state.dbFileId = cached.dbFileId;
     state.db = migrateDb(cached.db);
     applyTheme();
     state.view = "login";
     render();
-    flushOffline();
+    if(state.accessToken) flushOffline();
     return;
   }
 
   state.view = "connect";
   render();
 }
+
 async function seedDefaultDbUsers(db){
   const hash = await sha256("developer123");
   db.users.push({
@@ -893,24 +1015,30 @@ async function seedDefaultDbUsers(db){
 }
 
 async function handleConnect(){
+  const patInput = document.getElementById("patInput");
+  const pat = (patInput ? patInput.value.trim() : "") || state.accessToken;
+  if(!pat){ toast("Paste your access token first", "err"); return; }
+  state.accessToken = pat;
   try{
-    toast("Connecting to GitHub…");
-    let gist = await gistFindDatabaseGist();
-    if(!gist){
+    await connectDrive();
+    saveToken(pat);
+    toast("Connected", "ok");
+    let file = await driveFindDbFile();
+    if(!file){
       const fresh = defaultDb();
       await seedDefaultDbUsers(fresh);
-      const id = await gistCreateDatabase(fresh);
-      state.gistId = id;
+      const id = await driveCreateDbFile(fresh);
+      state.dbFileId = id;
       state.db = migrateDb(fresh);
-      toast("Created new database gist on GitHub", "ok");
-      await pushToGitHub();
+      toast("Created new database", "ok");
+      await pushToDrive();
     } else {
-      state.gistId = gist.id;
-      state.db = migrateDb(await gistReadFile(gist.id));
+      state.dbFileId = file.id;
+      state.db = migrateDb(await driveReadFile(file.id));
       if(!state.db.users || state.db.users.length===0){
         await seedDefaultDbUsers(state.db);
       }
-      await pushToGitHub();
+      await pushToDrive();
     }
     applyTheme();
     saveLocalCache();
@@ -919,7 +1047,7 @@ async function handleConnect(){
     render();
   }catch(e){
     console.error(e);
-    toast("Could not connect to GitHub. Check token / gist scope.", "err");
+    toast("Could not connect. Check your token, repository name, and permissions.", "err");
   }
 }
 
@@ -936,54 +1064,33 @@ function render(){
   if(state.view === "developer") return renderShell(el, renderDeveloperView);
 }
 
-/* ---------------- SETUP ---------------- */
+/* ---------------- SETUP (no client id configured) ---------------- */
 function renderSetupScreen(el){
   const wrap = document.createElement("div");
   wrap.className = "center-screen";
   wrap.innerHTML = `
     <div class="panel" style="max-width:560px;">
-      <div class="brand">
-        <div class="mark">S</div>
-        <div>
-          <div class="name">Sade POS</div>
-          <div class="sub">SETUP REQUIRED</div>
-        </div>
-      </div>
+      <div class="brand"><div class="mark">S</div><div><div class="name">Sade POS</div><div class="sub">SETUP REQUIRED</div></div></div>
       <div class="card">
-        <h3 style="margin-bottom:12px;">Connect this app to GitHub</h3>
+        <h3 style="margin-bottom:12px;">Connect this app to its GitHub data repository</h3>
         <p style="font-size:13px; color:var(--paper-dim); line-height:1.6; margin-bottom:14px;">
-          Paste a GitHub Personal Access Token with only the <b>gist</b> scope.
-          It will be stored locally on this device and never uploaded anywhere.
+          This app stores everything (products, users, sales, reports) in one JSON file kept in a
+          private GitHub repository — a repository separate from the one hosting this app itself,
+          so your business data is never publicly visible.
         </p>
-        <div class="field">
-          <label>GitHub Personal Access Token</label>
-          <input id="setupToken" type="password" placeholder="ghp_..." autocomplete="off" spellcheck="false" />
-        </div>
-        <button class="btn btn-primary btn-block" id="setupSaveBtn">Save token &amp; continue</button>
-        <p style="font-size:12px; color:var(--crema-dim); margin-top:12px; line-height:1.5;">
-          Don't have one? Go to <code>github.com/settings/tokens</code> →
-          <b>Generate new token (classic)</b> → check only the <b>gist</b> scope.
-        </p>
+        <ol class="setup-steps" style="padding-left:18px;">
+          <li>On GitHub, create a new repository, and set its visibility to <b>Private</b>. This holds only the data file — never make it Public.</li>
+          <li>Set <code>CONFIG.GITHUB_OWNER</code> and <code>CONFIG.GITHUB_REPO</code> near the top of this file's script to match that repository's owner and name, then reload.</li>
+          <li>On GitHub, go to <b>Settings → Developer settings → Personal access tokens → Fine-grained tokens → Generate new token</b>.</li>
+          <li>Under <b>Repository access</b>, choose <b>"Only select repositories"</b> and pick just the private data repo from step 1.</li>
+          <li>Under <b>Permissions → Repository permissions</b>, set <b>Contents</b> to <b>Read and write</b>. Leave everything else untouched.</li>
+          <li>Generate the token, copy it (it's shown only once), and paste it into the connect screen on each device that needs access.</li>
+        </ol>
       </div>
     </div>`;
   el.appendChild(wrap);
-
-  // When the user clicks "Save token & continue"
-  $("#setupSaveBtn").onclick = ()=>{
-    const token = $("#setupToken").value.trim();
-    if(!token){ 
-      toast("Please paste a token first", "err"); 
-      return; 
-    }
-    // Save it to the browser's local storage
-    localStorage.setItem("sade_gh_token", token);
-    // Update the in-memory CONFIG so the app can use it immediately
-    CONFIG.GITHUB_TOKEN = token;
-    // Move to the next screen (the "Connect GitHub" button page)
-    state.view = "connect";
-    render();
-  };
 }
+
 /* ---------------- CONNECT SCREEN ---------------- */
 function renderConnectScreen(el){
   const wrap = document.createElement("div");
@@ -992,19 +1099,25 @@ function renderConnectScreen(el){
     <div class="panel">
       <div class="brand"><div class="mark">S</div><div><div class="name">Sade POS</div><div class="sub">COFFEE SHOP SYSTEM</div></div></div>
       <div class="card">
-        <h3 style="margin-bottom:8px;">Connect to GitHub</h3>
-        <p style="font-size:13px; color:var(--paper-dim); margin-bottom:18px; line-height:1.5;">
-          The app will read and write a shared sales database stored as a private GitHub Gist.
+        <h3 style="margin-bottom:8px;">Connect this device</h3>
+        <p style="font-size:13px; color:var(--paper-dim); margin-bottom:14px; line-height:1.5;">
+          Paste the shop's access token below. This device will then read and write the shared sales
+          database. You only need to do this once per device — it's remembered afterward.
         </p>
-        <button class="btn btn-primary btn-block" id="connectBtn">Connect GitHub</button>
+        <div class="field"><input id="patInput" type="password" placeholder="Paste your access token" autocomplete="off" /></div>
+        <button class="btn btn-primary btn-block" id="connectBtn">Connect</button>
       </div>
     </div>`;
   el.appendChild(wrap);
-  $("#connectBtn").onclick = ()=>{
+  const doConnect = ()=>{
     $("#connectBtn").disabled = true;
     $("#connectBtn").textContent = "Connecting…";
-    handleConnect();
+    handleConnect().finally(()=>{
+      if($("#connectBtn")){ $("#connectBtn").disabled = false; $("#connectBtn").textContent = "Connect"; }
+    });
   };
+  $("#connectBtn").onclick = doConnect;
+  $("#patInput").addEventListener("keydown", e=>{ if(e.key==="Enter") doConnect(); });
 }
 
 /* ---------------- LOGIN SCREEN ---------------- */
@@ -1045,7 +1158,7 @@ function renderLoginScreen(el){
   $("#lp").addEventListener("keydown", e=>{ if(e.key==="Enter") doLogin(); });
 }
 
-/* ---------------- SHELL ---------------- */
+/* ---------------- SHELL (topbar + role screen) ---------------- */
 function renderShell(el, contentFn){
   const shell = document.createElement("div");
   shell.className = "shell";
@@ -1069,7 +1182,7 @@ function renderShell(el, contentFn){
   `;
   el.appendChild(shell);
   $("#logoutLink").onclick = ()=>{
-    state.currentUser = null; state.cart = []; state.appliedCoupon = null;
+    state.currentUser = null; state.cart = []; state.appliedCoupon = null; state.staffMember = null;
     state.view = "login"; render();
   };
   $("#myAccountLink").onclick = openMyAccountModal;
@@ -1094,29 +1207,51 @@ function openMyAccountModal(){
   document.body.appendChild(bg);
   $("#maCancel").onclick = ()=>bg.remove();
   $("#maSave").onclick = async ()=>{
-    const user = state.db.users.find(u=>u.id===state.currentUser.id);
+    const user = activeUsers().find(u=>u.id===state.currentUser.id);
     if(!user){ bg.remove(); return; }
     const name = $("#maName").value.trim();
     const pass = $("#maPass").value;
     if(name){ user.name = name; state.currentUser.name = name; }
     if(pass){ user.passwordHash = await sha256(pass); }
     user.updatedAt = nowIso();
-    await pushToGitHub();
+    await pushToDrive();
     bg.remove();
     toast("Account updated", "ok");
     render();
   };
 }
 
-/* ================= HELPERS ================= */
+/* ================= CATEGORY / PRODUCT / USER / COUPON HELPERS =================
+   Deleting a record can't just remove it from the local array — a device that
+   hasn't synced the deletion yet would "resurrect" it on its next merge, since
+   the merge logic only knows how to combine records, not represent an absence.
+   So a delete instead soft-deletes (deleted:true + updatedAt), and every read
+   site filters those out — the tombstone itself still syncs like any edit. */
 function categoriesSorted(){
-  return (state.db.categories||[]).slice().sort((a,b)=>(a.order??0)-(b.order??0));
+  return (state.db.categories||[]).filter(c=>!c.deleted).slice().sort((a,b)=>(a.order??0)-(b.order??0));
 }
 function sortedProducts(){
-  return state.db.products.slice().sort((a,b)=> (a.order??0) - (b.order??0));
+  return state.db.products.filter(p=>!p.deleted).slice().sort((a,b)=> (a.order??0) - (b.order??0));
+}
+function activeUsers(){
+  return (state.db.users||[]).filter(u=>!u.deleted);
+}
+function activeCoupons(){
+  return (state.db.coupons||[]).filter(c=>!c.deleted);
+}
+/* everything worth showing in the Coupons tab: active, disabled, AND used
+   (single-use tombstones) — but not a code the developer truly deleted,
+   which stays fully hidden the way a delete normally would. */
+function visibleCoupons(){
+  return (state.db.coupons||[]).filter(c=>!c.deleted || c.usedInSale);
+}
+function couponStatus(c){
+  if(c.usedInSale) return { label:"Used", color:"var(--crema-dim)" };
+  if(c.active===false) return { label:"Disabled", color:"var(--err)" };
+  return { label:"Active", color:"var(--ok)" };
 }
 function categoryName(catId){
-  const c = (state.db.categories||[]).find(c=>c.id===catId);
+  const c = (state.db.categories||[]).find(c=>c.id===catId && !c.deleted);
   return c ? c.name : "Other";
 }
 
@@ -1160,7 +1295,7 @@ function renderCashierView(el){
     gridCol.appendChild(section);
   });
 
-  if(state.db.products.length===0){
+  if(sortedProducts().length===0){
     gridCol.innerHTML = `<div class="empty-state"><div class="big">🧾</div><p>No products yet. Ask the developer to add menu buttons.</p></div>` + gridCol.innerHTML;
   }
 
@@ -1169,11 +1304,17 @@ function renderCashierView(el){
 
   const cartCol = document.createElement("div");
   cartCol.className = "cart-panel";
-  const totals = computeCartTotals(state.cart, state.appliedCoupon);
+  const totals = computeCartTotals(state.cart, state.appliedCoupon, currentStaff());
   cartCol.innerHTML = `
     <div class="cart-head"><h3>Current order</h3></div>
     <div class="cart-items" id="cartItems"></div>
     <div class="cart-foot">
+      ${state.db.meta.staffEnabled ? (state.staffMember ? `
+        <div class="applied-coupon"><span>👤 ${esc(state.staffMember.name)}</span><a id="removeStaff">Remove</a></div>
+        ${totals.staffDiscountAmt===0 && state.cart.length ? `<div style="font-size:11.5px; color:var(--crema-dim); margin-bottom:8px;">No allowance left for the items in this order.</div>` : ""}
+      ` : `
+        <button class="btn btn-outline btn-block" id="enterStaffBtn" style="margin-bottom:8px;">👤 Staff</button>
+      `) : ""}
       ${state.appliedCoupon ? `
         <div class="applied-coupon"><span>🏷️ ${state.appliedCoupon.code} — ${state.appliedCoupon.percent}% off one drink</span><a id="removeCoupon">Remove</a></div>
         ${totals.discountAmt===0 ? `<div style="font-size:11.5px; color:var(--crema-dim); margin-bottom:8px;">This coupon only applies to drinks — add a drink to use it.</div>` : ""}
@@ -1181,6 +1322,7 @@ function renderCashierView(el){
         <button class="btn btn-outline btn-block" id="enterCouponBtn" style="margin-bottom:12px;">🏷️ Enter coupon code</button>
       `}
       ${totals.discountAmt>0 ? `<div class="discount-row"><span>Discount (1 drink)</span><span>−${money(totals.discountAmt)}</span></div>` : ""}
+      ${totals.staffDiscountAmt>0 ? `<div class="discount-row"><span>Discount</span><span>−${money(totals.staffDiscountAmt)}</span></div>` : ""}
       <div class="total-row"><span style="color:var(--crema-dim); font-size:13px;">Total</span><span class="amt">${money(totals.total)}</span></div>
       <div class="pay-toggle">
         <button data-pay="cash" class="${state.payMethod==='cash'?'active':''}">Cash</button>
@@ -1202,7 +1344,7 @@ function renderCashierView(el){
       const row = document.createElement("div");
       row.className = "cart-row";
       row.innerHTML = `
-        <div><div class="ci-name">${item.name}${item.isDrink===false ? "" : " ☕"}</div><div class="ci-meta">${money(item.price)} each</div></div>
+        <div><div class="ci-name">${item.name}${item.isDrink===false ? "" : " ☕"}</div><div class="ci-meta">${money(item.price)} each</div>${optLinesHtml(item)}</div>
         <div class="qty-ctrl">
           <button data-act="dec" data-idx="${idx}">−</button>
           <span class="mono">${item.qty}</span>
@@ -1226,8 +1368,11 @@ function renderCashierView(el){
     b.onclick = ()=>{ state.payMethod = b.dataset.pay; render(); };
   });
   $("#checkoutBtn").onclick = completeSale;
+  if($("#enterStaffBtn")) $("#enterStaffBtn").onclick = openStaffPicker;
+  if($("#removeStaff")) $("#removeStaff").onclick = ()=>{ state.staffMember = null; render(); };
   if($("#enterCouponBtn")){
     $("#enterCouponBtn").onclick = ()=>{
+      if(currentStaff()){ toast("Coupons can't be combined with a staff order","err"); return; }
       state.numpadTarget = { kind:"coupon" };
       state.numpadAmount = "";
       render();
@@ -1240,23 +1385,54 @@ function renderCashierView(el){
   }
 }
 
-/* coupon rule: single-use, one unit of the highest-priced eligible ("drink") item */
-function computeCartTotals(cart, coupon){
+/* coupon rule: applies to ONE unit only, of the highest-priced eligible
+   ("drink") item in the cart — never multiplied across quantity or items,
+   and never applied to non-drink items. */
+function computeCartTotals(cart, coupon, staffRef){
   const subtotal = cart.reduce((s,i)=>s+i.price*i.qty,0);
   let discountAmt = 0;
-  if(coupon){
+  if(coupon && !staffRef){
     const eligiblePrices = cart.filter(i=>i.isDrink!==false).map(i=>i.price);
     if(eligiblePrices.length){
       const maxPrice = Math.max(...eligiblePrices);
       discountAmt = maxPrice * (coupon.percent/100);
     }
   }
-  const total = Math.max(0, subtotal - discountAmt);
-  return { subtotal, discountAmt, total };
+  const staff = computeStaffDiscount(cart, staffRef);
+  const total = Math.max(0, subtotal - discountAmt - staff.amount);
+  return { subtotal, discountAmt, staffDiscountAmt: staff.amount, staffUnits: { drink: staff.drink, food: staff.food }, total };
+}
+
+/* ---- cart lines with optional add-ons ---- */
+function productOptionGroups(p){
+  return ((p && p.optionGroups) || []).filter(g=>g.choices && g.choices.length);
+}
+function optLinesHtml(item){
+  if(!item.options || !item.options.length) return "";
+  const labels = [];
+  item.options.forEach(o=>o.choices.forEach(c=>labels.push(esc(c.label))));
+  return labels.length ? `<div class="ci-opts">${labels.join(" · ")}</div>` : "";
+}
+function receiptOptLines(item){
+  if(!item.options || !item.options.length) return "";
+  return item.options.map(o=>o.choices.map(c=>
+    `<div class="rsub">– ${esc(c.label)}${c.price>0 ? " (+"+moneyText(c.price)+")" : ""}</div>`).join("")).join("");
+}
+/* adds a line to the cart. Identical product + identical add-ons merge into one line (qty+1);
+   open-price lines are always their own line, as before. */
+function pushCartLine(productId, name, basePrice, isDrink, options, openPrice){
+  const extra = options.reduce((s,o)=>s+o.choices.reduce((a,c)=>a+(c.price||0),0),0);
+  const price = basePrice + extra;
+  const key = openPrice ? uid() : (productId + "|" + price + "|" +
+    options.map(o=>o.groupId+":"+o.choices.map(c=>c.id).sort().join(",")).join(";"));
+  const existing = openPrice ? null : state.cart.find(i=>i.key===key);
+  if(existing) existing.qty++;
+  else state.cart.push({ key, productId, name, price, qty:1, isDrink, options });
 }
 
 function addToCart(product){
   if(product.price===null || product.price===undefined){
+    // open price — hand off to the always-on numpad panel instead of adding directly
     state.numpadTarget = { kind:"product", id: product.id, name: product.name, isDrink: product.isDrink!==false };
     state.numpadAmount = "";
     render();
@@ -1264,12 +1440,72 @@ function addToCart(product){
     if(panel) panel.scrollIntoView({behavior:"smooth", block:"center"});
     return;
   }
-  const existing = state.cart.find(i=>i.productId===product.id);
-  if(existing) existing.qty++;
-  else state.cart.push({ productId: product.id, name: product.name, price: product.price, qty: 1, isDrink: product.isDrink!==false });
-  render();
+  const groups = productOptionGroups(product);
+  if(!groups.length){
+    pushCartLine(product.id, product.name, product.price, product.isDrink!==false, [], false);
+    render();
+    return;
+  }
+  openOptionsModal(product, groups, product.price, opts=>{
+    pushCartLine(product.id, product.name, product.price, product.isDrink!==false, opts, false);
+    render();
+  });
 }
 
+/* popup shown when a product has add-on options: radio groups (pick one) and checkbox groups (pick any) */
+function openOptionsModal(product, groups, basePrice, onConfirm){
+  const isReq = g => g.type==="radio" ? g.required!==false : g.required===true;
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${esc(product.name)}</h3>
+      ${groups.map(g=>`
+        <div class="opt-group">
+          <h4>${esc(g.title)}<small>${g.type==="radio" ? "choose one" : "choose any"}${isReq(g) ? " · required" : ""}</small></h4>
+          ${g.choices.map(c=>`
+            <label class="opt-choice">
+              <input type="${g.type==="radio" ? "radio" : "checkbox"}" name="og_${g.id}" data-g="${g.id}" data-c="${c.id}" />
+              <span>${esc(c.label)}</span>
+              ${c.price>0 ? `<span class="opt-extra">+${moneyText(c.price)}</span>` : ""}
+            </label>`).join("")}
+        </div>`).join("")}
+      <div class="modal-actions">
+        <button class="btn btn-outline" id="ogCancel">Cancel</button>
+        <button class="btn btn-primary" id="ogOk">Add</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  const okBtn = bg.querySelector("#ogOk");
+  function selection(){
+    return groups.map(g=>({
+      g, picked: g.choices.filter(c=>bg.querySelector(`input[data-g="${g.id}"][data-c="${c.id}"]`).checked)
+    }));
+  }
+  function refresh(){
+    const sel = selection();
+    const ok = sel.every(s=> !isReq(s.g) || s.picked.length>0);
+    const extra = sel.reduce((t,s)=>t+s.picked.reduce((a,c)=>a+(c.price||0),0),0);
+    okBtn.disabled = !ok;
+    okBtn.textContent = "Add — " + moneyText(basePrice + extra);
+  }
+  bg.addEventListener("change", refresh);
+  refresh();
+  bg.querySelector("#ogCancel").onclick = ()=>bg.remove();
+  okBtn.onclick = ()=>{
+    const opts = selection().filter(s=>s.picked.length).map(s=>({
+      groupId: s.g.id, title: s.g.title,
+      choices: s.picked.map(c=>({ id:c.id, label:c.label, price:c.price||0 }))
+    }));
+    bg.remove();
+    onConfirm(opts);
+  };
+}
+
+/* ---- always-visible numpad panel (not a modal) ----
+   Locked/idle until the cashier either taps an open-price item (prices it)
+   or taps "Enter coupon code" (types a code) — it never accepts digits on
+   its own and there is no freeform "custom item" entry point anymore. */
 function renderNumpadPanel(host){
   if(!host) return;
   const target = state.numpadTarget;
@@ -1300,7 +1536,7 @@ function renderNumpadPanel(host){
   keys.forEach(k=>{
     const b = document.createElement("button");
     b.textContent = k;
-    b.disabled = locked || (k==="." && target && target.kind==="coupon");
+    b.disabled = locked || (k==="." && target && target.kind==="coupon"); // coupon codes are numeric-only
     b.onclick = ()=>{
       if(locked) return;
       if(k==="⌫") state.numpadAmount = state.numpadAmount.slice(0,-1);
@@ -1317,66 +1553,177 @@ function renderNumpadPanel(host){
   host.querySelector("#npAddBtn").onclick = ()=>{
     if(locked) return;
     if(target.kind==="coupon"){
+      if(currentStaff()){ toast("Coupons can't be combined with a staff order","err"); return; }
       const code = state.numpadAmount.trim();
       if(!code){ toast("Enter a code first", "err"); return; }
-      const match = (state.db.coupons||[]).find(c =>
-        c.code.toUpperCase()===code.toUpperCase() &&
-        c.status === "Active" // only Active coupons can be applied
-      );
-      if(!match){ toast("Coupon not found, disabled, or already used", "err"); return; }
-      state.appliedCoupon = { id: match.id, code: match.code, percent: match.percent };
+      const match = activeCoupons().find(c => c.code.toUpperCase()===code.toUpperCase() && c.active!==false);
+      if(!match){ toast("Coupon not found or inactive", "err"); return; }
+      state.appliedCoupon = { code: match.code, percent: match.percent };
       state.numpadAmount = ""; state.numpadTarget = null;
       render();
       return;
     }
     const price = parseFloat(state.numpadAmount);
     if(isNaN(price) || price<=0){ toast("Enter an amount first", "err"); return; }
-    state.cart.push({ productId: target.id, name: target.name, price, qty:1, isDrink: target.isDrink!==false });
+    // drink eligibility comes from how the developer set up this product — cashiers never choose it
+    const tgt = target;
+    const prod = state.db.products.find(p=>p.id===tgt.id);
+    const groups = productOptionGroups(prod);
     state.numpadAmount = ""; state.numpadTarget = null;
-    render();
+    if(!groups.length){
+      pushCartLine(tgt.id, tgt.name, price, tgt.isDrink!==false, [], true);
+      render();
+    } else {
+      render();
+      openOptionsModal(prod, groups, price, opts=>{
+        pushCartLine(tgt.id, tgt.name, price, tgt.isDrink!==false, opts, true);
+        render();
+      });
+    }
   };
 }
 
-async function completeSale(){
-  if(state.cart.length===0) return;
-  const totals = computeCartTotals(state.cart, state.appliedCoupon);
+/* Shop-wide daily receipt number: counts every sale already recorded today
+   by ANY cashier and adds one, zero-padded to 3 digits. It's derived from
+   the sales themselves rather than kept as a separate counter, so it resets
+   on its own when the date changes, is unaffected by a cashier closing
+   their day or by who's signed in, and needs no extra state to sync. (If two
+   devices finish a sale inside the same ~20s sync window they could compute
+   the same number — a small, accepted trade-off at one shop's volume.) */
+function nextReceiptNumber(db){
+  const todayCount = (db || state.db).sales.filter(s=>s.date===todayStr()).length;
+  return String(todayCount + 1).padStart(3, "0");
+}
+
+/* Puts the current order into `db` (a sale record, staff-allowance usage, coupon use) and returns the sale. */
+function applyOrderToDb(db, totals){
   const sale = {
     id: uid(),
+    receiptNumber: nextReceiptNumber(db),
     cashierId: state.currentUser.id,
     cashierName: state.currentUser.name || state.currentUser.username,
-    items: state.cart.map(i=>({productId:i.productId, name:i.name, price:i.price, qty:i.qty, isDrink:i.isDrink!==false})),
+    items: state.cart.map(i=>({productId:i.productId, name:i.name, price:i.price, qty:i.qty, isDrink:i.isDrink!==false, options:i.options||[]})),
     subtotal: totals.subtotal,
     couponCode: state.appliedCoupon ? state.appliedCoupon.code : null,
     discountPercent: state.appliedCoupon ? state.appliedCoupon.percent : 0,
     discountAmt: totals.discountAmt,
+    staffDiscountAmt: totals.staffDiscountAmt || 0,
+    staffId: (totals.staffDiscountAmt>0 && state.staffMember) ? state.staffMember.id : null,
     total: totals.total,
     payment: state.payMethod,
     timestamp: nowIso(),
     date: todayStr()
   };
-  state.db.sales.push(sale);
-
-  // Mark coupon as Used (single-use) if it was actually applied
-  if(state.appliedCoupon && totals.discountAmt > 0){
-    const usedId = state.appliedCoupon.id;
-    const usedCoupon = state.db.coupons.find(c => c.id === usedId);
-    if(usedCoupon){
-      usedCoupon.status = "Used";
-      usedCoupon.active = false;
-      usedCoupon.usedAt = nowIso();
-      usedCoupon.usedBy = state.currentUser.username;
-      usedCoupon.updatedAt = nowIso();
-    }
+  db.sales.push(sale);
+  // use up the staff allowance (hidden from cashiers — only the developer sets it)
+  if(currentStaff()){
+    ["drink","food"].forEach(kind=>{
+      const q = totals.staffUnits[kind];
+      if(q>0) db.staffUsage.push({ id: uid(), staffId: state.staffMember.id, kind, qty:q, saleId: sale.id, timestamp: nowIso(), date: todayStr() });
+    });
   }
+  // coupons are single-use — mark it used the moment it's actually applied
+  // in a completed sale. This is a distinct flag from a manual "Delete" so
+  // the Coupons tab can show "Used" as its own status rather than just
+  // vanishing the same way a developer-deleted code does.
+  if(state.appliedCoupon && totals.discountAmt > 0){
+    const used = db.coupons.find(c => c.code.toUpperCase() === state.appliedCoupon.code.toUpperCase());
+    if(used){ used.deleted = true; used.active = false; used.usedInSale = true; used.updatedAt = nowIso(); }
+  }
+  return sale;
+}
 
-  state.cart = [];
-  state.appliedCoupon = null;
-  await pushToGitHub();
-  showReceiptModal(sale);
-  if(state.db.meta.autoPrintReceipt !== false){
-    printHTML(`<div class="receipt">${receiptInnerHtml(sale)}</div>`);
+/* Staff orders that use an allowance are saved "instantly and safely":
+   1) read the newest data from GitHub, 2) re-check the allowance against it,
+   3) write with GitHub's file version (sha) — if another device saved first, GitHub refuses
+   the write, so we re-read, re-check and try again. Two devices can therefore never both
+   spend the same allowance. Needs an internet connection (that's what makes it safe). */
+async function commitStaffSale(shownTotal){
+  if(!navigator.onLine || !state.accessToken){
+    toast("Staff orders need an internet connection","err");
+    return null;
+  }
+  for(let attempt=0; attempt<4; attempt++){
+    try{
+      const remote = await driveReadFile();            // also refreshes state.fileSha
+      state.db = migrateDb(mergeDb(state.db, remote));
+    }catch(e){
+      toast("Couldn't reach the server — staff order not completed","err");
+      return null;
+    }
+    const totals = computeCartTotals(state.cart, state.appliedCoupon, currentStaff());
+    if(Math.abs(totals.total - shownTotal) > 0.001){
+      toast("Staff allowance just changed on another device — please check the total","err");
+      render();
+      return null;
+    }
+    const candidate = JSON.parse(JSON.stringify(state.db));
+    const sale = applyOrderToDb(candidate, totals);
+    candidate.meta.updatedAt = nowIso();
+    let res;
+    try{
+      res = await fetch(ghApiUrl(), {
+        method: "PUT",
+        headers: { ...authHeaders(), "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: "Staff sale " + sale.receiptNumber,
+          content: utf8ToBase64(JSON.stringify(candidate, null, 2)),
+          sha: state.fileSha
+        })
+      });
+    }catch(e){
+      toast("Connection lost — staff order not completed","err");
+      return null;
+    }
+    if(res.ok){
+      const data = await res.json();
+      state.fileSha = data.content.sha;
+      state.db = candidate;
+      state.offlinePending = false;
+      saveLocalCache();
+      return sale;
+    }
+    if(res.status===409 || res.status===422) continue;   // someone saved first — look again
+    toast("Save failed — staff order not completed","err");
+    return null;
+  }
+  toast("Server is busy — please tap Complete sale again","err");
+  return null;
+}
+
+let saleBusy = false;
+async function completeSale(){
+  if(state.cart.length===0 || saleBusy) return;
+  const totals = computeCartTotals(state.cart, state.appliedCoupon, currentStaff());
+  const strict = !!currentStaff() && totals.staffDiscountAmt > 0;
+  let sale;
+  if(strict){
+    saleBusy = true;
+    const btn = $("#checkoutBtn");
+    if(btn){ btn.disabled = true; btn.textContent = "Saving…"; }
+    try{ sale = await commitStaffSale(totals.total); }
+    finally{ saleBusy = false; }
+    if(!sale){ render(); return; }
+    state.cart = [];
+    state.appliedCoupon = null;
+    state.staffMember = null;
+  } else {
+    sale = applyOrderToDb(state.db, totals);
+    state.cart = [];
+    state.appliedCoupon = null;
+    state.staffMember = null;
+    await pushToDrive();
   }
   render();
+  if(state.db.meta.autoPrintReceipt !== false){
+    // auto-print on: the print dialog is the only thing that opens — no
+    // second on-screen "Sale complete" popup on top of it.
+    toast(`Sale complete — receipt ${sale.receiptNumber}`, "ok");
+    printHTML(`<div class="receipt">${receiptInnerHtml(sale)}</div>`, state.db.meta.printCopies);
+  } else {
+    // auto-print off: show the receipt on screen so it can still be printed by hand
+    showReceiptModal(sale);
+  }
 }
 
 function showReceiptModal(sale){
@@ -1388,22 +1735,24 @@ function showReceiptModal(sale){
       <div class="receipt" id="receiptContent">${receiptInnerHtml(sale)}</div>
       <div class="modal-actions">
         <button class="btn btn-outline btn-block" id="closeReceipt">Close</button>
-        <button class="btn btn-primary btn-block" id="printReceiptBtn">🖨️ Print again</button>
+        <button class="btn btn-primary btn-block" id="printReceiptBtn">🖨️ Print</button>
       </div>
     </div>`;
   document.body.appendChild(bg);
   $("#closeReceipt").onclick = ()=>bg.remove();
-  $("#printReceiptBtn").onclick = ()=> printHTML(`<div class="receipt">${receiptInnerHtml(sale)}</div>`);
+  $("#printReceiptBtn").onclick = ()=> printHTML(`<div class="receipt">${receiptInnerHtml(sale)}</div>`, state.db.meta.printCopies);
 }
 
 function receiptInnerHtml(sale){
   const rows = `
-    <div class="rline"><span>${new Date(sale.timestamp).toLocaleString()}</span><span>${sale.cashierName}</span></div>
+    ${sale.receiptNumber ? `<div class="rline rnum" style="font-weight:700;"><span>Receipt No.</span><span class="num">${sale.receiptNumber}</span></div>` : ""}
+    <div class="rline"><span>${fmtDateTime(sale.timestamp)}</span><span>${sale.cashierName}</span></div>
     <hr/>
-    ${sale.items.map(i=>`<div class="rline"><span>${i.qty}× ${i.name}</span><span>${money(i.price*i.qty)}</span></div>`).join("")}
+    ${sale.items.map(i=>`<div class="rline"><span>${i.qty}× ${i.name}</span><span>${money(i.price*i.qty)}</span></div>${receiptOptLines(i)}`).join("")}
     <hr/>
     <div class="rline"><span>Subtotal</span><span>${money(sale.subtotal!=null?sale.subtotal:sale.total)}</span></div>
     ${sale.discountAmt ? `<div class="rline"><span>Coupon ${sale.couponCode} (${sale.discountPercent}%)</span><span>−${money(sale.discountAmt)}</span></div>` : ""}
+    ${sale.staffDiscountAmt ? `<div class="rline"><span>Discount</span><span>−${money(sale.staffDiscountAmt)}</span></div>` : ""}
     <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(sale.total)}</span></div>
     <div class="rline"><span>Payment</span><span style="text-transform:capitalize;">${sale.payment}</span></div>`;
   return receiptWrap(rows);
@@ -1418,15 +1767,19 @@ function openCloseDayModal(){
   todaySales.forEach(s=>s.items.forEach(it=>{
     byProduct[it.name] = (byProduct[it.name]||0) + it.qty;
   }));
+  const couponsUsed = todaySales.filter(s=>s.couponCode && s.discountAmt>0)
+    .map(s=>({ code:s.couponCode, percent:s.discountPercent, discountAmt:s.discountAmt }));
+  const couponsDiscountTotal = couponsUsed.reduce((s,c)=>s+c.discountAmt,0);
   const reportRows = `
     <div class="rline"><span>Cashier</span><span>${state.currentUser.name||state.currentUser.username}</span></div>
-    <div class="rline"><span>Date</span><span>${todayStr()}</span></div>
+    <div class="rline"><span>Date</span><span>${fmtDate(todayStr())}</span></div>
     <hr/>
     <div class="rline"><span>Transactions</span><span>${todaySales.length}</span></div>
     <div class="rline"><span>Cash</span><span>${money(cash)}</span></div>
     <div class="rline"><span>Card</span><span>${money(card)}</span></div>
     <hr/>
     ${Object.entries(byProduct).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
+    ${couponsUsed.length ? `<hr/><div class="rline"><span>Coupons used</span><span>${couponsUsed.length}</span></div>${couponsUsed.map(c=>`<div class="rline"><span>&nbsp;&nbsp;${c.code} (${c.percent}%)</span><span>−${money(c.discountAmt)}</span></div>`).join("")}<div class="rline"><span>Total discount given</span><span>−${money(couponsDiscountTotal)}</span></div>` : ""}
     <hr/>
     <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(total)}</span></div>`;
   const bg = document.createElement("div");
@@ -1453,24 +1806,34 @@ function openCloseDayModal(){
       date: todayStr(),
       totalSales: total,
       transactionCount: todaySales.length,
-      breakdown: { cash, card, byProduct },
+      breakdown: { cash, card, byProduct, couponsUsed, couponsDiscountTotal },
       closedAt: nowIso()
     };
     state.db.dayCloses.push(report);
-    await pushToGitHub();
+    state.db.dayCloses = dedupeDayCloses(state.db.dayCloses);
+    await pushToDrive();
     bg.remove();
     toast("Day closed. Signed out — sign in again to start a new shift.", "ok");
-    state.currentUser = null; state.cart = []; state.appliedCoupon = null;
+    state.currentUser = null; state.cart = []; state.appliedCoupon = null; state.staffMember = null;
     state.view = "login";
     render();
   };
 }
 
-/* ================= ADMIN VIEW ================= */
+/* ================= ADMIN VIEW (read-only) ================= */
 function renderAdminView(el){
+  const at = state.db.meta.adminTabs || {};
+  const allTabs = [["live","Live sales"],["reports","Day reports"],["menu","Menu"],["categories","Categories"],["coupons","Coupons"],["team","Team"]];
+  const visibleTabs = allTabs.filter(([key])=> at[key]!==false);
+  if(visibleTabs.length===0){
+    el.innerHTML = `<div class="empty-state"><div class="big">🙈</div><p>The developer hasn't made any dashboard sections visible yet.</p></div>`;
+    return;
+  }
+  if(!visibleTabs.some(([key])=>key===state.adminTab)) state.adminTab = visibleTabs[0][0];
+
   const tabs = document.createElement("div");
   tabs.className = "tabs";
-  [["live","Live sales"],["reports","Day reports"],["menu","Menu"],["categories","Categories"],["coupons","Coupons"],["team","Team"]].forEach(([key,label])=>{
+  visibleTabs.forEach(([key,label])=>{
     const t = document.createElement("div");
     t.className = "tab" + (state.adminTab===key ? " active":"");
     t.textContent = label;
@@ -1499,17 +1862,19 @@ function statsForToday(){
 function renderLiveSales(el, editable){
   const {count, total, sales} = statsForToday();
   const activeCashiers = new Set(sales.map(s=>s.cashierName)).size;
+  const couponsUsedToday = sales.filter(s=>s.couponCode && s.discountAmt>0);
   el.innerHTML = `
     <div class="stat-grid">
       <div class="stat"><div class="label">Today's revenue</div><div class="value">${money(total)}</div></div>
       <div class="stat"><div class="label">Transactions</div><div class="value">${count}</div></div>
       <div class="stat"><div class="label">Active cashiers today</div><div class="value">${activeCashiers}</div></div>
+      <div class="stat"><div class="label">Coupons used today</div><div class="value">${couponsUsedToday.length}</div></div>
       <div class="stat"><div class="label">System status</div><div class="value" style="font-size:16px; color:${state.db.meta.appActive?'var(--ok)':'var(--err)'};">${state.db.meta.appActive?'Active':'Deactivated'}</div></div>
     </div>
     <div class="card">
       <h3 style="margin-bottom:12px; font-size:15px;">Recent transactions</h3>
       <table>
-        <thead><tr><th>Time</th><th>Cashier</th><th>Items</th><th>Pay</th><th style="text-align:right;">Total</th></tr></thead>
+        <thead><tr><th>Time</th><th>Cashier</th><th>Items</th><th>Pay</th><th>Coupon</th><th style="text-align:right;">Total</th></tr></thead>
         <tbody>
           ${sales.slice().reverse().slice(0,40).map(s=>`
             <tr>
@@ -1517,8 +1882,9 @@ function renderLiveSales(el, editable){
               <td>${s.cashierName}</td>
               <td>${s.items.map(i=>i.qty+"× "+i.name).join(", ")}</td>
               <td style="text-transform:capitalize;">${s.payment}</td>
+              <td class="mono">${s.couponCode && s.discountAmt>0 ? `${s.couponCode} (−${money(s.discountAmt)})` : "—"}</td>
               <td style="text-align:right;">${money(s.total)}</td>
-            </tr>`).join("") || `<tr><td colspan="5" style="text-align:center; color:var(--crema-dim); padding:24px;">No sales yet today.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="6" style="text-align:center; color:var(--crema-dim); padding:24px;">No sales yet today.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1533,7 +1899,7 @@ function renderReportsList(el, editable){
         <button class="btn btn-outline" id="exportDayClosesBtn">⬇️ Export to Excel</button>
       </div>
       <table>
-        <thead><tr><th>Date</th><th>Cashier</th><th>Transactions</th><th>Cash</th><th>Card</th><th style="text-align:right;">Total</th><th></th></tr></thead>
+        <thead><tr><th>Date</th><th>Cashier</th><th>Transactions</th><th>Cash</th><th>Card</th><th>Coupons</th><th style="text-align:right;">Total</th><th></th></tr></thead>
         <tbody>
           ${closes.map(c=>`
             <tr>
@@ -1542,9 +1908,10 @@ function renderReportsList(el, editable){
               <td>${c.transactionCount}</td>
               <td>${money(c.breakdown.cash)}</td>
               <td>${money(c.breakdown.card)}</td>
+              <td>${(c.breakdown.couponsUsed||[]).length ? `${c.breakdown.couponsUsed.length} (−${money(c.breakdown.couponsDiscountTotal||0)})` : "—"}</td>
               <td style="text-align:right;">${money(c.totalSales)}</td>
               <td><a class="link" data-print="${c.id}">Print</a>${editable?` · <a class="link" data-delete="${c.id}" style="color:var(--err);">Delete</a>`:""}</td>
-            </tr>`).join("") || `<tr><td colspan="7" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
+            </tr>`).join("") || `<tr><td colspan="8" style="text-align:center; color:var(--crema-dim); padding:24px;">No day-close reports yet.</td></tr>`}
         </tbody>
       </table>
     </div>`;
@@ -1552,15 +1919,17 @@ function renderReportsList(el, editable){
   el.querySelectorAll("[data-print]").forEach(a=>{
     a.onclick = ()=>{
       const c = closes.find(x=>x.id===a.dataset.print);
+      const couponsUsed = c.breakdown.couponsUsed||[];
       const rows = `
         <div class="rline"><span>Cashier</span><span>${c.cashierName}</span></div>
-        <div class="rline"><span>Date</span><span>${c.date}</span></div>
+        <div class="rline"><span>Date</span><span>${fmtDate(c.date)}</span></div>
         <hr/>
         <div class="rline"><span>Transactions</span><span>${c.transactionCount}</span></div>
         <div class="rline"><span>Cash</span><span>${money(c.breakdown.cash)}</span></div>
         <div class="rline"><span>Card</span><span>${money(c.breakdown.card)}</span></div>
         <hr/>
         ${Object.entries(c.breakdown.byProduct||{}).map(([n,q])=>`<div class="rline"><span>${n}</span><span>x${q}</span></div>`).join("")}
+        ${couponsUsed.length ? `<hr/><div class="rline"><span>Coupons used</span><span>${couponsUsed.length}</span></div>${couponsUsed.map(cu=>`<div class="rline"><span>&nbsp;&nbsp;${cu.code} (${cu.percent}%)</span><span>−${money(cu.discountAmt)}</span></div>`).join("")}<div class="rline"><span>Total discount given</span><span>−${money(c.breakdown.couponsDiscountTotal||0)}</span></div>` : ""}
         <hr/>
         <div class="rline" style="font-weight:700;"><span>TOTAL</span><span>${money(c.totalSales)}</span></div>`;
       printHTML(`<div class="receipt">${receiptWrap(rows)}</div>`);
@@ -1572,8 +1941,8 @@ function renderReportsList(el, editable){
         const c = closes.find(x=>x.id===a.dataset.delete);
         if(!c) return;
         if(!confirm(`Delete the ${c.date} report for ${c.cashierName}? This can't be undone.`)) return;
-        markDeleted("dayCloses", c.id);
-        await pushToGitHub();
+        state.db.dayCloses = state.db.dayCloses.filter(x=>x.id!==c.id);
+        await pushToDrive();
         toast("Report deleted", "ok");
         render();
       };
@@ -1595,11 +1964,15 @@ function renderReportsList(el, editable){
   }
 }
 
+/* ---- Excel exports ---- */
 function exportDayClosesExcel(){
   if(!window.XLSX){ toast("Excel library still loading, try again in a moment", "err"); return; }
   const rows = state.db.dayCloses.map(c=>({
     Date: c.date, Cashier: c.cashierName, Transactions: c.transactionCount,
-    Cash: c.breakdown.cash, Card: c.breakdown.card, Total: c.totalSales,
+    Cash: c.breakdown.cash, Card: c.breakdown.card,
+    "Coupons Used": (c.breakdown.couponsUsed||[]).length,
+    "Coupon Discount Total": c.breakdown.couponsDiscountTotal||0,
+    Total: c.totalSales,
     "Closed At": new Date(c.closedAt).toLocaleString()
   }));
   const ws = XLSX.utils.json_to_sheet(rows);
@@ -1626,17 +1999,23 @@ function exportMonthlyExcel(monthValue){
   }));
   const salesRows = monthSales.map(s=>({
     Date:s.date, Time:new Date(s.timestamp).toLocaleTimeString(), Cashier:s.cashierName,
-    Items: s.items.map(i=>i.qty+"x "+i.name).join(", "), Subtotal:s.subtotal, Discount:s.discountAmt||0,
+    Items: s.items.map(i=>i.qty+"x "+i.name).join(", "), Subtotal:s.subtotal,
+    Coupon: s.discountAmt>0 ? s.couponCode : "", Discount:s.discountAmt||0,
     Total:s.total, Payment:s.payment
+  }));
+  const couponRows = monthSales.filter(s=>s.discountAmt>0 && s.couponCode).map(s=>({
+    Date:s.date, Time:new Date(s.timestamp).toLocaleTimeString(), Cashier:s.cashierName,
+    Code:s.couponCode, Percent:s.discountPercent, "Discount Given":s.discountAmt
   }));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(byDay)), "Daily Summary");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(salesRows), "All Sales");
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(Object.values(byProduct)), "By Product");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(couponRows.length?couponRows:[{Date:"",Time:"",Cashier:"",Code:"",Percent:"",  "Discount Given":""}]), "Coupons Used");
   XLSX.writeFile(wb, "sade-monthly-report-"+monthValue+".xlsx");
 }
 
-/* ---- menu ---- */
+/* ---- menu (flat, drag-reorderable) ---- */
 function renderMenuList(el, editable){
   const freeLayout = !!state.db.meta.freeLayout;
   const layout = state.db.meta.layout || DEFAULT_LAYOUT;
@@ -1668,7 +2047,7 @@ function renderMenuList(el, editable){
         const [moved] = ordered.splice(fromIdx,1);
         ordered.splice(toIdx,0,moved);
         ordered.forEach((prod,i)=>{ prod.order = i; prod.updatedAt = nowIso(); });
-        await pushToGitHub();
+        await pushToDrive();
         render();
       });
     }
@@ -1703,7 +2082,7 @@ function renderMenuList(el, editable){
   if(editable){
     $("#freeLayoutToggle").onchange = async e=>{
       state.db.meta.freeLayout = e.target.checked;
-      await pushToGitHub();
+      await pushToDrive();
       render();
     };
     if(freeLayout){
@@ -1716,7 +2095,7 @@ function renderMenuList(el, editable){
         state.db.meta.layout.btnHeight = btnHeight;
         state.db.meta.layout.canvasHeight = rows * (btnHeight + 10) + 10;
         applyLayout();
-        await pushToGitHub();
+        await pushToDrive();
         toast(`Buttons auto-aligned to a ${cols}×${rows} grid`, "ok");
         render();
       };
@@ -1762,6 +2141,14 @@ function openProductModal(product){
       <div class="field"><label>Emoji</label><input id="pfEmoji" value="${product?product.emoji:"☕"}" maxlength="4" /></div>
       <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="pfDrink" style="width:auto;" ${!product || product.isDrink!==false ? "checked":""}/> Eligible for drink coupons</label></div>
       ${!isNew ? `<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="pfActive" style="width:auto;" ${product.active!==false?"checked":""}/> Button visible to cashiers</label></div>` : ""}
+      <div class="field">
+        <label>Add-on options (the cashier gets a popup with these when tapping this button)</label>
+        <div id="pfGroups"></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button type="button" class="btn btn-outline" id="pfAddRadio">➕ Radio group</button>
+          <button type="button" class="btn btn-outline" id="pfAddCheck">➕ Checkbox group</button>
+        </div>
+      </div>
       <div class="modal-actions">
         ${!isNew ? '<button class="btn btn-danger" id="delProd">Delete</button>' : '<span></span>'}
         <button class="btn btn-outline" id="cancelProd">Cancel</button>
@@ -1770,6 +2157,62 @@ function openProductModal(product){
     </div>`;
   document.body.appendChild(bg);
   $("#cancelProd").onclick = ()=>bg.remove();
+
+  /* ---- add-on option groups editor ---- */
+  let groupsDraft = JSON.parse(JSON.stringify((product && product.optionGroups) || []));
+  const gHost = bg.querySelector("#pfGroups");
+  const newChoice = ()=>({ id: uid(), label:"", price:0 });
+  function drawGroups(){
+    gHost.innerHTML = "";
+    groupsDraft.forEach((g, gi)=>{
+      const isRadio = g.type==="radio";
+      const req = isRadio ? g.required!==false : g.required===true;
+      const box = document.createElement("div");
+      box.className = "og-box";
+      box.innerHTML = `
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+          <b style="font-size:13px;">${isRadio ? "🔘 Radio group (pick one)" : "☑️ Checkbox group (pick any)"}</b>
+          <a class="link" data-act="rm">Remove</a>
+        </div>
+        <div class="field"><label>Title shown to the cashier (e.g. Milk)</label><input data-f="title" value="${esc(g.title)}" /></div>
+        <div class="inline-row">
+          <div class="field"><label>Number of ${isRadio ? "radio buttons" : "checkboxes"}</label><input type="number" min="1" max="12" data-f="count" value="${g.choices.length}" /></div>
+          <div class="field" style="align-self:flex-end;"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" data-f="required" style="width:auto;" ${req ? "checked" : ""}/> Required</label></div>
+        </div>
+        ${g.choices.map((c,ci)=>`
+          <div class="og-row">
+            <input data-f="label" data-ci="${ci}" placeholder="Choice ${ci+1} name" value="${esc(c.label)}" />
+            <input data-f="price" data-ci="${ci}" type="number" step="0.01" min="0" placeholder="Extra price" style="max-width:110px;" value="${c.price>0 ? c.price : ""}" />
+          </div>`).join("")}`;
+      box.addEventListener("input", e=>{
+        const f = e.target.dataset.f;
+        if(f==="title") g.title = e.target.value;
+        else if(f==="label") g.choices[+e.target.dataset.ci].label = e.target.value;
+        else if(f==="price") g.choices[+e.target.dataset.ci].price = parseFloat(e.target.value) || 0;
+      });
+      box.addEventListener("change", e=>{
+        const f = e.target.dataset.f;
+        if(f==="required") g.required = e.target.checked;
+        if(f==="count"){
+          const n = Math.max(1, Math.min(12, parseInt(e.target.value,10) || 1));
+          while(g.choices.length < n) g.choices.push(newChoice());
+          g.choices.length = n;
+          drawGroups();
+        }
+      });
+      box.querySelector('[data-act="rm"]').onclick = ()=>{ groupsDraft.splice(gi,1); drawGroups(); };
+      gHost.appendChild(box);
+    });
+  }
+  bg.querySelector("#pfAddRadio").onclick = ()=>{
+    groupsDraft.push({ id: uid(), type:"radio", title:"", required:true, choices:[newChoice(), newChoice()] });
+    drawGroups();
+  };
+  bg.querySelector("#pfAddCheck").onclick = ()=>{
+    groupsDraft.push({ id: uid(), type:"check", title:"", required:false, choices:[newChoice(), newChoice()] });
+    drawGroups();
+  };
+  drawGroups();
   $("#saveProd").onclick = async ()=>{
     const name = $("#pfName").value.trim();
     const priceRaw = $("#pfPrice").value.trim();
@@ -1777,28 +2220,37 @@ function openProductModal(product){
     const categoryId = $("#pfCat").value;
     const isDrink = $("#pfDrink").checked;
     if(!name || (priceRaw!=="" && isNaN(price))){ toast("Enter a name, and either a price or leave it blank for open price","err"); return; }
+    const cleanGroups = [];
+    for(const g of groupsDraft){
+      const choices = g.choices.map(c=>({ id:c.id, label:(c.label||"").trim(), price: Math.max(0, +c.price || 0) })).filter(c=>c.label);
+      const title = (g.title||"").trim();
+      if(!title && choices.length===0) continue;   // completely blank group — ignore it
+      if(!title){ toast("Give every add-on group a title","err"); return; }
+      if(choices.length===0){ toast(`"${title}" needs at least one named choice`,"err"); return; }
+      cleanGroups.push({ id:g.id, type:g.type, title, required: g.type==="radio" ? g.required!==false : g.required===true, choices });
+    }
     if(isNew){
       const maxOrder = state.db.products.reduce((m,p)=>Math.max(m, p.order??0), -1);
       state.db.products.push({
         id: uid(), name, price, categoryId,
-        emoji: $("#pfEmoji").value.trim()||"🧾", isDrink, active:true, order: maxOrder+1,
+        emoji: $("#pfEmoji").value.trim()||"🧾", isDrink, active:true, order: maxOrder+1, optionGroups: cleanGroups,
         updatedAt: nowIso()
       });
     } else {
       Object.assign(product, {
         name, price, categoryId,
-        emoji: $("#pfEmoji").value.trim()||"🧾", isDrink,
+        emoji: $("#pfEmoji").value.trim()||"🧾", isDrink, optionGroups: cleanGroups,
         active: $("#pfActive").checked, updatedAt: nowIso()
       });
     }
-    await pushToGitHub();
+    await pushToDrive();
     bg.remove();
     render();
   };
   if(!isNew){
     $("#delProd").onclick = async ()=>{
-      markDeleted("products", product.id);
-      await pushToGitHub();
+      product.deleted = true; product.active = false; product.updatedAt = nowIso();
+      await pushToDrive();
       bg.remove();
       render();
     };
@@ -1816,7 +2268,7 @@ function renderCategoriesList(el, editable){
   </div>`;
   const list = $("#catList");
   cats.forEach(cat=>{
-    const count = state.db.products.filter(p=>p.categoryId===cat.id).length;
+    const count = sortedProducts().filter(p=>p.categoryId===cat.id).length;
     const row = document.createElement("div");
     row.className = "cat-row";
     row.style.cursor = editable ? "grab" : "default";
@@ -1840,7 +2292,7 @@ function renderCategoriesList(el, editable){
         const [moved] = ordered.splice(fromIdx,1);
         ordered.splice(toIdx,0,moved);
         ordered.forEach((c,i)=>{ c.order = i; });
-        await pushToGitHub();
+        await pushToDrive();
         render();
       });
     }
@@ -1876,33 +2328,29 @@ function openCategoryModal(cat){
     } else {
       cat.name = name;
     }
-    await pushToGitHub();
+    await pushToDrive();
     bg.remove();
     render();
   };
   if(!isNew){
     $("#delCat").onclick = async ()=>{
-      if(state.db.categories.length<=1){ toast("You need at least one category","err"); return; }
-      const remaining = state.db.categories.filter(c=>c.id!==cat.id);
+      const remaining = categoriesSorted().filter(c=>c.id!==cat.id);
+      if(remaining.length===0){ toast("You need at least one category","err"); return; }
       const fallback = remaining[0];
-      state.db.products.forEach(p=>{ if(p.categoryId===cat.id){ p.categoryId = fallback.id; p.updatedAt = nowIso(); } });
-      markDeleted("categories", cat.id);
-      await pushToGitHub();
+      state.db.products.forEach(p=>{ if(p.categoryId===cat.id) { p.categoryId = fallback.id; p.updatedAt = nowIso(); } });
+      cat.deleted = true; cat.updatedAt = nowIso();
+      await pushToDrive();
       bg.remove();
       render();
     };
   }
 }
 
-/* ================= COUPONS =================
-   Each coupon has a status: "Active" (can be used), "Disabled" (manually
-   turned off by developer), or "Used" (consumed in a completed sale).
-   Only "Active" coupons can be applied by cashiers. */
+/* ================= COUPONS ================= */
 function renderCouponsList(el, editable){
-  const coupons = (state.db.coupons||[]).slice().sort((a,b)=> new Date(b.createdAt||0)-new Date(a.createdAt||0));
-  el.innerHTML = `<div class="card">
-    <h3 style="margin-bottom:6px; font-size:15px;">Coupons (${editable?"editable":"view only"})</h3>
-    <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">Coupons only discount drink items, one drink per sale (the most expensive eligible drink). Each coupon is <b>single-use</b>: once applied in a completed sale it becomes <b>Used</b> and can never be used again.</p>
+  const coupons = visibleCoupons().slice().sort((a,b)=> new Date(b.createdAt||0)-new Date(a.createdAt||0));
+  el.innerHTML = `<div class="card"><h3 style="margin-bottom:6px; font-size:15px;">Coupons (${editable?"editable":"view only"})</h3>
+    <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">Coupons only discount drink items, one drink per sale (the most expensive eligible drink) — and each code works once. The moment a coupon is used in a completed sale, its status changes to "Used" and it can never be applied again.</p>
     <table><thead><tr><th>Code</th><th>Discount</th><th>Status</th>${editable?"<th></th>":""}</tr></thead>
     <tbody id="couponBody"></tbody></table>
     ${editable?`
@@ -1919,18 +2367,33 @@ function renderCouponsList(el, editable){
     body.innerHTML = `<tr><td colspan="${editable?4:3}" style="text-align:center; color:var(--crema-dim); padding:24px;">No coupons yet.</td></tr>`;
   }
   coupons.forEach(c=>{
-    const status = c.status || (c.active === false ? "Disabled" : "Active");
-    const statusColor = status === "Active" ? "var(--ok)" : (status === "Used" ? "var(--crema-dim)" : "var(--err)");
+    const status = couponStatus(c);
     const tr = document.createElement("tr");
     tr.innerHTML = `<td class="mono">${c.code}</td><td>${c.percent}% off</td>
-      <td style="color:${statusColor}; font-weight:600;">${status}</td>
-      ${editable?`<td><a class="link" data-cid="${c.id}">Edit</a></td>`:""}`;
+      <td style="color:${status.color};">${status.label}</td>
+      ${editable?`<td>${c.usedInSale
+        ? `<a class="link" data-used-delete="${c.id}" style="color:var(--err);">Delete</a>`
+        : `<a class="link" data-cid="${c.id}">Edit</a>`}</td>`:""}`;
     body.appendChild(tr);
   });
   if(editable){
     $("#addCouponBtn").onclick = ()=>openCouponModal(null);
     body.querySelectorAll("a[data-cid]").forEach(a=>{
       a.onclick = ()=>openCouponModal(coupons.find(c=>c.id===a.dataset.cid));
+    });
+    body.querySelectorAll("a[data-used-delete]").forEach(a=>{
+      a.onclick = async ()=>{
+        const c = coupons.find(x=>x.id===a.dataset.usedDelete);
+        if(!c) return;
+        if(!confirm(`Remove the used code ${c.code} from this list? It's already spent and can't be reused either way — this just clears it from view.`)) return;
+        // stays a tombstone (deleted stays true, so it can never be re-applied);
+        // clearing usedInSale is what drops it out of the visible list.
+        c.usedInSale = false;
+        c.updatedAt = nowIso();
+        await pushToDrive();
+        toast("Removed from list", "ok");
+        render();
+      };
     });
     $("#uploadCsvBtn").onclick = ()=> $("#csvFileInput").click();
     $("#csvFileInput").addEventListener("change", async e=>{
@@ -1940,21 +2403,18 @@ function renderCouponsList(el, editable){
       const lines = text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
       let added = 0, skipped = 0;
       if(!state.db.coupons) state.db.coupons = [];
-      const existingCodes = new Set(state.db.coupons.map(c=>c.code.toUpperCase()));
+      const existingCodes = new Set(activeCoupons().map(c=>c.code.toUpperCase()));
       lines.forEach(line=>{
         const parts = line.split(",").map(p=>p.trim());
         const code = (parts[0]||"").toUpperCase();
         const percent = parseFloat(parts[1]);
         if(!code || code==="CODE" || isNaN(percent) || percent<=0 || percent>100){ skipped++; return; }
         if(existingCodes.has(code)){ skipped++; return; }
-        state.db.coupons.push({
-          id: uid(), code, percent, status:"Active", active:true,
-          createdAt: nowIso(), updatedAt: nowIso()
-        });
+        state.db.coupons.push({ id: uid(), code, percent, active:true, createdAt: nowIso(), updatedAt: nowIso() });
         existingCodes.add(code);
         added++;
       });
-      if(added>0) await pushToGitHub();
+      if(added>0) await pushToDrive();
       toast(`${added} coupon${added===1?"":"s"} added${skipped?`, ${skipped} skipped`:""}`, added>0?"ok":"err");
       e.target.value = "";
       render();
@@ -1964,7 +2424,6 @@ function renderCouponsList(el, editable){
 
 function openCouponModal(coupon){
   const isNew = !coupon;
-  const currentStatus = coupon ? (coupon.status || (coupon.active === false ? "Disabled" : "Active")) : "Active";
   const bg = document.createElement("div");
   bg.className = "modal-bg";
   bg.innerHTML = `
@@ -1972,16 +2431,7 @@ function openCouponModal(coupon){
       <h3>${isNew ? "New coupon" : "Edit coupon"}</h3>
       <div class="field"><label>Code (what the cashier types)</label><input id="cfCode" value="${coupon?coupon.code:""}" style="text-transform:uppercase;" /></div>
       <div class="field"><label>Discount percent (%)</label><input id="cfPercent" type="number" min="1" max="100" value="${coupon?coupon.percent:10}" /></div>
-      ${!isNew ? `
-        <div class="field"><label>Status</label>
-          <select id="cfStatus">
-            <option value="Active" ${currentStatus==="Active"?"selected":""}>Active — can be used</option>
-            <option value="Disabled" ${currentStatus==="Disabled"?"selected":""}>Disabled — cannot be used</option>
-            <option value="Used" ${currentStatus==="Used"?"selected":""}>Used — already consumed</option>
-          </select>
-        </div>` : `
-        <p style="font-size:12px; color:var(--crema-dim); margin-bottom:12px;">New coupons start as <b>Active</b>. They automatically become <b>Used</b> after being applied in a completed sale.</p>
-      `}
+      ${!isNew ? `<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="cfActive" style="width:auto;" ${coupon.active!==false?"checked":""}/> Coupon active</label></div>` : ""}
       <div class="modal-actions">
         ${!isNew ? '<button class="btn btn-danger" id="delCoupon">Delete</button>' : '<span></span>'}
         <button class="btn btn-outline" id="cancelCoupon">Cancel</button>
@@ -1996,40 +2446,34 @@ function openCouponModal(coupon){
     if(!code || isNaN(percent) || percent<=0 || percent>100){ toast("Enter a code and a percent between 1-100","err"); return; }
     if(!state.db.coupons) state.db.coupons = [];
     if(isNew){
-      if(state.db.coupons.some(c=>c.code.toUpperCase()===code)){ toast("That code already exists","err"); return; }
-      state.db.coupons.push({
-        id: uid(), code, percent, status:"Active", active:true,
-        createdAt: nowIso(), updatedAt: nowIso()
-      });
+      if(activeCoupons().some(c=>c.code.toUpperCase()===code)){ toast("That code already exists","err"); return; }
+      state.db.coupons.push({ id: uid(), code, percent, active:true, createdAt: nowIso(), updatedAt: nowIso() });
     } else {
-      const newStatus = $("#cfStatus").value;
       coupon.code = code; coupon.percent = percent;
-      coupon.status = newStatus;
-      coupon.active = (newStatus === "Active");
+      coupon.active = $("#cfActive").checked;
       coupon.updatedAt = nowIso();
     }
-    await pushToGitHub();
+    await pushToDrive();
     bg.remove();
     render();
   };
   if(!isNew){
     $("#delCoupon").onclick = async ()=>{
-      markDeleted("coupons", coupon.id);
-      await pushToGitHub();
+      coupon.deleted = true; coupon.active = false; coupon.updatedAt = nowIso();
+      await pushToDrive();
       bg.remove();
       render();
     };
   }
 }
 
-/* ================= TEAM ================= */
+/* ================= TEAM (developer accounts are never listed here) ================= */
 function renderTeamList(el, editable){
-  const visibleUsers = state.db.users.filter(u=>u.role!=="developer");
-  const addBtnLabel = `Add ${roleLabel('cashier').toLowerCase()} / ${roleLabel('admin').toLowerCase()}`;
+  const visibleUsers = activeUsers().filter(u=>u.role!=="developer");
   el.innerHTML = `<div class="card"><h3 style="margin-bottom:12px; font-size:15px;">Team (${editable?"editable":"view only"})</h3>
     <table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th>${editable?"<th></th>":""}</tr></thead>
     <tbody id="teamBody"></tbody></table>
-    ${editable?`<button class="btn btn-primary" id="addUserBtn" style="margin-top:14px;">${addBtnLabel}</button>`:""}
+    ${editable?'<button class="btn btn-primary" id="addUserBtn" style="margin-top:14px;">Add cashier / admin</button>':""}
     </div>`;
   const body = $("#teamBody");
   if(visibleUsers.length===0){
@@ -2045,7 +2489,7 @@ function renderTeamList(el, editable){
   if(editable){
     $("#addUserBtn").onclick = ()=>openUserModal(null);
     body.querySelectorAll("a[data-uid]").forEach(a=>{
-      a.onclick = ()=>openUserModal(state.db.users.find(u=>u.id===a.dataset.uid));
+      a.onclick = ()=>openUserModal(activeUsers().find(u=>u.id===a.dataset.uid));
     });
   }
 }
@@ -2082,7 +2526,7 @@ function openUserModal(user){
     const pass = $("#ufPass").value;
     if(!name || !username){ toast("Name and username are required","err"); return; }
     if(isNew){
-      if(state.db.users.some(u=>u.username.toLowerCase()===username.toLowerCase())){
+      if(activeUsers().some(u=>u.username.toLowerCase()===username.toLowerCase())){
         toast("Username already exists","err"); return;
       }
       if(!pass){ toast("Password is required","err"); return; }
@@ -2093,26 +2537,25 @@ function openUserModal(user){
       user.active = $("#ufActive").checked;
       if(pass) user.passwordHash = await sha256(pass);
     }
-    await pushToGitHub();
+    await pushToDrive();
     bg.remove();
     render();
   };
   if(!isNew){
     $("#delUser").onclick = async ()=>{
-      if(user.role === "developer"){ toast("Can't remove the developer account","err"); return; }
-      if(!confirm(`Remove ${user.name} (${user.username})? This can't be undone.`)) return;
-      markDeleted("users", user.id);
-      await pushToGitHub();
+      user.deleted = true; user.active = false; user.updatedAt = nowIso();
+      await pushToDrive();
       bg.remove();
       render();
     };
   }
 }
 
-/* ================= SETTINGS ================= */
+/* ================= SETTINGS (branding, currency, receipt, colors) ================= */
 function renderSettingsPanel(el){
   const m = state.db.meta;
   const draft = { ...m, theme: { ...(m.theme||DEFAULT_THEME) }, layout: { ...(m.layout||DEFAULT_LAYOUT) } };
+  const isPreset = CURRENCY_PRESETS.some(c=>c.symbol===m.currencySymbol && c.code===m.currencyCode);
 
   el.innerHTML = `
     <div class="card">
@@ -2173,8 +2616,31 @@ function renderSettingsPanel(el){
         </div>
       </div>
 
+      <div class="settings-section">
+        <h4>Admin dashboard tabs</h4>
+        <p style="font-size:12px; color:var(--crema-dim); margin-bottom:10px;">Choose which sections the admin role can see. Unchecked ones are completely hidden — not just view-only, but absent.</p>
+        <div id="adminTabsChecklist"></div>
+      </div>
+
+      <div class="settings-section">
+        <h4>Printing</h4>
+        <div class="field"><label>Copies per receipt</label><input type="number" id="stPrintCopies" min="1" max="5" value="${m.printCopies||1}" style="max-width:120px;" /></div>
+        <p style="font-size:12px; color:var(--crema-dim);">How many copies print automatically each time a sale completes.</p>
+      </div>
+
       <button class="btn btn-primary btn-block" id="saveSettingsBtn">Save settings</button>
     </div>`;
+
+  const adminTabLabels = { live:"Live sales", reports:"Day reports", menu:"Menu", categories:"Categories", coupons:"Coupons", team:"Team" };
+  const adminTabsDraft = { ...(m.adminTabs||{}) };
+  const checklist = $("#adminTabsChecklist");
+  Object.keys(adminTabLabels).forEach(key=>{
+    const row = document.createElement("label");
+    row.style.cssText = "display:flex; align-items:center; gap:8px; margin-bottom:8px;";
+    row.innerHTML = `<input type="checkbox" id="atc_${key}" style="width:auto;" ${adminTabsDraft[key]!==false?"checked":""}/> ${adminTabLabels[key]}`;
+    row.querySelector("input").addEventListener("change", e=>{ adminTabsDraft[key] = e.target.checked; });
+    checklist.appendChild(row);
+  });
 
   const fieldLabels = { bg:"Background", bg2:"Panels / cards", accent:"Accent (buttons)", accentLight:"Accent — hover", text:"Text color" };
   const grid = $("#themeGrid");
@@ -2255,12 +2721,216 @@ function renderSettingsPanel(el){
       cashier: $("#stCashierLabel").value.trim() || "Cashier",
       admin: $("#stAdminLabel").value.trim() || "Admin"
     };
+    draft.adminTabs = adminTabsDraft;
+    draft.printCopies = Math.max(1, Math.min(5, parseInt($("#stPrintCopies").value,10) || 1));
     state.db.meta = { ...state.db.meta, ...draft };
     applyTheme();
-    await pushToGitHub();
+    await pushToDrive();
     toast("Settings saved", "ok");
     render();
   };
+}
+
+/* ================= STAFF ALLOWANCE =================
+   Developer sets, per person, how many free (or discounted) drinks and foods they get per
+   day / week / month. Cashiers never see the remaining numbers — the allowance is simply
+   applied automatically when a staff member is selected on an order. Usage is stored in
+   db.staffUsage (append-only, merged across devices) and resets by period. */
+function currentStaff(){ return (state.db.meta.staffEnabled && state.staffMember) ? state.staffMember : null; }
+function allStaff(){ return (state.db.staff||[]).filter(s=>!s.deleted); }
+function activeStaff(){ return allStaff().filter(s=>s.active!==false); }
+function staffPeriodStart(period){
+  const t = todayStr();
+  const d = new Date(t+"T00:00:00Z");
+  if(period==="week"){ d.setUTCDate(d.getUTCDate() - ((d.getUTCDay()+6)%7)); return d.toISOString().slice(0,10); }
+  if(period==="month") return t.slice(0,8)+"01";
+  return t;
+}
+function staffRemaining(staff){
+  const start = staffPeriodStart(staff.period), today = todayStr();
+  const used = { drink:0, food:0 };
+  (state.db.staffUsage||[]).forEach(u=>{
+    if(u.staffId===staff.id && u.date>=start && u.date<=today && used[u.kind]!==undefined) used[u.kind] += (u.qty||0);
+  });
+  return { drink: Math.max(0,(staff.drinksAllowed||0)-used.drink), food: Math.max(0,(staff.foodAllowed||0)-used.food) };
+}
+/* the allowance goes to the highest-priced units first, up to what's left for the period */
+function computeStaffDiscount(cart, staffRef){
+  const out = { amount:0, drink:0, food:0 };
+  if(!staffRef || !state.db.meta.staffEnabled) return out;
+  const staff = allStaff().find(s=>s.id===staffRef.id);
+  if(!staff || staff.active===false) return out;
+  const rem = staffRemaining(staff);
+  const pctRaw = state.db.meta.staffDiscountPercent;
+  const pct = Math.max(0, Math.min(100, pctRaw===undefined || pctRaw===null ? 100 : pctRaw));
+  ["drink","food"].forEach(kind=>{
+    const units = [];
+    cart.forEach(i=>{
+      if((i.isDrink!==false) === (kind==="drink")) for(let k=0;k<i.qty;k++) units.push(i.price);
+    });
+    units.sort((a,b)=>b-a);
+    const n = Math.min(rem[kind], units.length);
+    out[kind] = n;
+    out.amount += units.slice(0,n).reduce((s,p)=>s+p,0) * pct / 100;
+  });
+  return out;
+}
+
+/* cashier: choose who the order is for (asks for the 4-digit PIN when that switch is on) */
+function openStaffPicker(){
+  const list = activeStaff();
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  document.body.appendChild(bg);
+
+  function choose(staff){
+    state.staffMember = { id: staff.id, name: staff.name };
+    if(state.appliedCoupon){
+      state.appliedCoupon = null;
+      toast("Coupon removed — it can't be combined with a staff order");
+    }
+    if(state.numpadTarget && state.numpadTarget.kind==="coupon"){ state.numpadTarget = null; state.numpadAmount = ""; }
+    bg.remove();
+    render();
+  }
+  function showPin(staff){
+    bg.innerHTML = `
+      <div class="modal">
+        <h3>${esc(staff.name)}</h3>
+        <div class="field"><label>Enter 4-digit PIN</label><input id="stfPinInput" type="password" inputmode="numeric" maxlength="4" autocomplete="off" /></div>
+        <div class="modal-actions">
+          <button class="btn btn-outline" id="stfBack">Back</button>
+          <button class="btn btn-primary" id="stfPinOk">Confirm</button>
+        </div>
+      </div>`;
+    const input = bg.querySelector("#stfPinInput");
+    input.focus();
+    async function submit(){
+      if(!/^\d{4}$/.test(input.value)){ toast("Enter the 4-digit PIN","err"); return; }
+      const hash = await sha256(staff.id+":"+input.value);
+      if(hash !== staff.pinHash){ toast("Wrong PIN","err"); input.value = ""; input.focus(); return; }
+      choose(staff);
+    }
+    bg.querySelector("#stfPinOk").onclick = submit;
+    input.addEventListener("keydown", e=>{ if(e.key==="Enter") submit(); });
+    bg.querySelector("#stfBack").onclick = showList;
+  }
+  function showList(){
+    bg.innerHTML = `
+      <div class="modal">
+        <h3>Staff</h3>
+        ${list.length ? list.map(s=>`<button class="btn btn-outline btn-block" data-sid="${s.id}" style="margin-bottom:8px;">${esc(s.name)}</button>`).join("")
+          : `<p style="color:var(--crema-dim); font-size:13px;">No staff members yet. Ask the developer to add them.</p>`}
+        <div class="modal-actions"><button class="btn btn-outline" id="stfCancel">Cancel</button></div>
+      </div>`;
+    bg.querySelector("#stfCancel").onclick = ()=>bg.remove();
+    bg.querySelectorAll("[data-sid]").forEach(b=>{
+      b.onclick = ()=>{
+        const staff = list.find(s=>s.id===b.dataset.sid);
+        if(!staff) return;
+        if(state.db.meta.staffPinRequired){
+          if(!staff.pinHash){ toast("No PIN set for this person — ask the developer","err"); return; }
+          showPin(staff);
+        } else choose(staff);
+      };
+    });
+  }
+  showList();
+}
+
+/* developer: the Staff tab */
+function renderStaffPanel(el){
+  const m = state.db.meta;
+  const periodLabel = { day:"day", week:"week", month:"month" };
+  el.innerHTML = `
+    <div class="card">
+      <h3 style="margin-bottom:12px; font-size:15px;">Staff allowance</h3>
+      <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="stfEnabled" style="width:auto;" ${m.staffEnabled?"checked":""}/> Turn on Staff allowance (shows a “Staff” button on the cashier screen)</label></div>
+      <div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="stfPin" style="width:auto;" ${m.staffPinRequired?"checked":""}/> Ask for each person's 4-digit PIN when a cashier selects them</label></div>
+      <div class="field"><label>Discount on allowance items (%) — 100 means free</label><input type="number" id="stfPct" min="0" max="100" value="${m.staffDiscountPercent===undefined?100:m.staffDiscountPercent}" style="max-width:120px;" /></div>
+      <table style="margin-top:8px;"><thead><tr><th>Name</th><th>Allowance</th><th>Status</th><th></th></tr></thead><tbody id="staffBody"></tbody></table>
+      <button class="btn btn-primary" id="addStaffBtn" style="margin-top:14px;">➕ Add staff member</button>
+    </div>`;
+  $("#stfEnabled").onchange = async e=>{ state.db.meta.staffEnabled = e.target.checked; await pushToDrive(); render(); };
+  $("#stfPin").onchange = async e=>{ state.db.meta.staffPinRequired = e.target.checked; await pushToDrive(); render(); };
+  $("#stfPct").onchange = async e=>{
+    const v = Math.max(0, Math.min(100, parseFloat(e.target.value)));
+    state.db.meta.staffDiscountPercent = isNaN(v) ? 100 : v;
+    await pushToDrive(); render();
+  };
+  const body = $("#staffBody");
+  const list = allStaff();
+  if(list.length===0){
+    body.innerHTML = `<tr><td colspan="4" style="text-align:center; color:var(--crema-dim); padding:24px;">No staff members yet.</td></tr>`;
+  }
+  list.forEach(s=>{
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${esc(s.name)}</td>
+      <td>${s.drinksAllowed||0} drinks + ${s.foodAllowed||0} food / ${periodLabel[s.period]||"day"}</td>
+      <td style="color:${s.active===false?'var(--err)':'var(--ok)'};">${s.active===false?"Disabled":"Active"}</td>
+      <td><a class="link" data-sid="${s.id}">Edit</a></td>`;
+    body.appendChild(tr);
+  });
+  body.querySelectorAll("a[data-sid]").forEach(a=>{ a.onclick = ()=>openStaffModal(allStaff().find(s=>s.id===a.dataset.sid)); });
+  $("#addStaffBtn").onclick = ()=>openStaffModal(null);
+}
+
+function openStaffModal(staff){
+  const isNew = !staff;
+  const bg = document.createElement("div");
+  bg.className = "modal-bg";
+  bg.innerHTML = `
+    <div class="modal">
+      <h3>${isNew ? "Add staff member" : "Edit staff member"}</h3>
+      <div class="field"><label>Name</label><input id="sfName" value="${staff?esc(staff.name):""}" /></div>
+      <div class="inline-row">
+        <div class="field"><label>Drinks per period</label><input id="sfDrinks" type="number" min="0" step="1" value="${staff?(staff.drinksAllowed||0):0}" /></div>
+        <div class="field"><label>Food per period</label><input id="sfFood" type="number" min="0" step="1" value="${staff?(staff.foodAllowed||0):0}" /></div>
+      </div>
+      <div class="field"><label>Period (counts reset automatically)</label>
+        <select id="sfPeriod">
+          ${[["day","Every day"],["week","Every week (Mon–Sun)"],["month","Every month"]].map(([v,l])=>`<option value="${v}" ${(staff?staff.period:"day")===v?"selected":""}>${l}</option>`).join("")}
+        </select>
+      </div>
+      <div class="field"><label>${isNew ? "PIN (4 digits — only used when the PIN switch is on)" : "New PIN (4 digits — leave blank to keep the current one)"}</label><input id="sfPin" type="password" inputmode="numeric" maxlength="4" autocomplete="off" /></div>
+      ${!isNew ? `<div class="field"><label style="display:flex; align-items:center; gap:8px;"><input type="checkbox" id="sfActive" style="width:auto;" ${staff.active!==false?"checked":""}/> Active</label></div>` : ""}
+      <div class="modal-actions">
+        ${!isNew ? '<button class="btn btn-danger" id="delStaff">Remove</button>' : '<span></span>'}
+        <button class="btn btn-outline" id="cancelStaff">Cancel</button>
+        <button class="btn btn-primary" id="saveStaff">Save</button>
+      </div>
+    </div>`;
+  document.body.appendChild(bg);
+  bg.querySelector("#cancelStaff").onclick = ()=>bg.remove();
+  bg.querySelector("#saveStaff").onclick = async ()=>{
+    const name = bg.querySelector("#sfName").value.trim();
+    const drinks = Math.max(0, parseInt(bg.querySelector("#sfDrinks").value,10) || 0);
+    const food = Math.max(0, parseInt(bg.querySelector("#sfFood").value,10) || 0);
+    const period = bg.querySelector("#sfPeriod").value;
+    const pin = bg.querySelector("#sfPin").value.trim();
+    if(!name){ toast("Enter a name","err"); return; }
+    if(pin && !/^\d{4}$/.test(pin)){ toast("PIN must be exactly 4 digits","err"); return; }
+    if(isNew){
+      const rec = { id: uid(), name, drinksAllowed: drinks, foodAllowed: food, period, active:true, pinHash:null, createdAt: nowIso(), updatedAt: nowIso() };
+      if(pin) rec.pinHash = await sha256(rec.id+":"+pin);
+      state.db.staff.push(rec);
+    } else {
+      Object.assign(staff, { name, drinksAllowed: drinks, foodAllowed: food, period, active: bg.querySelector("#sfActive").checked, updatedAt: nowIso() });
+      if(pin) staff.pinHash = await sha256(staff.id+":"+pin);
+    }
+    await pushToDrive();
+    bg.remove();
+    render();
+  };
+  if(!isNew){
+    bg.querySelector("#delStaff").onclick = async ()=>{
+      staff.deleted = true; staff.active = false; staff.updatedAt = nowIso();
+      if(state.staffMember && state.staffMember.id===staff.id) state.staffMember = null;
+      await pushToDrive();
+      bg.remove();
+      render();
+    };
+  }
 }
 
 /* ================= DEVELOPER VIEW ================= */
@@ -2275,7 +2945,7 @@ function renderDeveloperView(el){
   toggleWrap.innerHTML = `
     <div>
       <b>Main system ${state.db.meta.appActive ? "is active" : "is deactivated"}</b>
-      <div style="font-size:12px; color:var(--crema-dim); margin-top:2px;">Clones on cashier devices sync from GitHub and follow this switch.</div>
+      <div style="font-size:12px; color:var(--crema-dim); margin-top:2px;">Clones on cashier devices sync automatically and follow this switch.</div>
     </div>
     <button class="btn ${state.db.meta.appActive ? 'btn-danger':'btn-primary'}" id="toggleActive">${state.db.meta.appActive ? "Deactivate" : "Activate"}</button>
   `;
@@ -2284,7 +2954,7 @@ function renderDeveloperView(el){
 
   const tabs = document.createElement("div");
   tabs.className = "tabs";
-  [["products","Menu buttons"],["categories","Categories"],["coupons","Coupons"],["settings","Settings"],["team",`${roleLabel('cashier')}s & ${roleLabel('admin')}s`],["live","Live sales"],["reports","Day reports"]].forEach(([key,label])=>{
+  [["products","Menu buttons"],["categories","Categories"],["coupons","Coupons"],["settings","Settings"],["staff","Staff"],["team",`${roleLabel('cashier')}s & ${roleLabel('admin')}s`],["live","Live sales"],["reports","Day reports"]].forEach(([key,label])=>{
     const t = document.createElement("div");
     t.className = "tab" + (state.devTab===key ? " active":"");
     t.textContent = label;
@@ -2298,7 +2968,7 @@ function renderDeveloperView(el){
 
   $("#toggleActive").onclick = async ()=>{
     state.db.meta.appActive = !state.db.meta.appActive;
-    await pushToGitHub();
+    await pushToDrive();
     render();
   };
 
@@ -2306,6 +2976,7 @@ function renderDeveloperView(el){
   if(state.devTab==="categories") return renderCategoriesList(body, true);
   if(state.devTab==="coupons") return renderCouponsList(body, true);
   if(state.devTab==="settings") return renderSettingsPanel(body);
+  if(state.devTab==="staff") return renderStaffPanel(body);
   if(state.devTab==="team") return renderTeamList(body, true);
   if(state.devTab==="live") return renderLiveSales(body, true);
   if(state.devTab==="reports") return renderReportsList(body, true);
